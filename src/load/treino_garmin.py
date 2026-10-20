@@ -27,7 +27,6 @@ from garminconnect.workout import (
     StepType,
     StrengthWorkout,
     TargetType,
-    WalkingWorkout,
     WorkoutSegment,
     create_cooldown_step,
     create_distance_interval_step,
@@ -135,36 +134,42 @@ def _passos_retomada(retomada, pace_alvo: str | None) -> list:
 
 
 ESPORTE_CORRIDA = {"sportTypeId": 1, "sportTypeKey": "running", "displayOrder": 1}
-ESPORTE_CAMINHADA = {"sportTypeId": 17, "sportTypeKey": "walking", "displayOrder": 17}
 
 
 def _eh_caminhada(tipo: str | None) -> bool:
     return (tipo or "").strip().lower().startswith("caminhada")
 
 
-def _treino(dia, data: date, passos: list, duracao_seg: int, caminhada: bool = False) -> RunningWorkout | WalkingWorkout:
-    classe, esporte = (WalkingWorkout, ESPORTE_CAMINHADA) if caminhada else (RunningWorkout, ESPORTE_CORRIDA)
-    return classe(
+def _treino(dia, data: date, passos: list, duracao_seg: int, descricao: str | None = None) -> RunningWorkout:
+    return RunningWorkout(
         workoutName=_nome_treino(dia.tipo_treino, data),
-        description=dia.motivo,
+        description=descricao or dia.motivo,
         estimatedDurationInSecs=duracao_seg,
-        workoutSegments=[WorkoutSegment(segmentOrder=1, sportType=esporte, workoutSteps=passos)],
+        workoutSegments=[WorkoutSegment(segmentOrder=1, sportType=ESPORTE_CORRIDA, workoutSteps=passos)],
     )
 
 
-def construir_treino(dia, data: date, retomada=None) -> RunningWorkout | WalkingWorkout | None:
+def construir_treino(dia, data: date, retomada=None) -> RunningWorkout | None:
     """`dia` é um TreinoDia e `retomada` uma SessaoRetomada (duck typing -- não
     importa analisar_com_ia pra não criar dependência circular). None se não
     for treino enviável (descanso, ou sem distância nem duração pra definir o
-    passo principal). Caminhada vai como treino de caminhada, só com a
-    duração, sem alvo."""
+    passo principal).
+
+    Caminhada vai como treino de CORRIDA com um passo só, por tempo, sem
+    alvo: o serviço de treinos do Garmin não tem esporte "caminhada" (a lista
+    de /workout-service/workout/types não tem, e o app Garmin Connect não
+    oferece) -- o WalkingWorkout da biblioteca manda um id que o Garmin
+    descarta, e o treino fica sem esporte, "incompatível" no relógio (bug
+    real de 2026-10-20). Gravada assim, a atividade sai com menos de 6% do
+    tempo correndo e o banco a classifica como Caminhada."""
     if dia.descanso or not dia.tipo_treino:
         return None
     if _eh_caminhada(dia.tipo_treino):
         if not dia.duracao_min:
             return None
         passos = [create_interval_step(dia.duracao_min * 60, 1)]
-        return _treino(dia, data, passos, int(dia.duracao_min * 60), caminhada=True)
+        descricao = f"Caminhada leve, sem trote ({dia.duracao_min:g} min). {dia.motivo}"
+        return _treino(dia, data, passos, int(dia.duracao_min * 60), descricao)
     if retomada is not None:
         duracao = retomada.blocos * (retomada.caminhada_seg + retomada.trote_seg)
         return _treino(dia, data, _passos_retomada(retomada, dia.pace_alvo), duracao)
@@ -295,16 +300,16 @@ def enviar_treino(api: Garmin, dia, data: date, retomada=None) -> str | None:
             return "removido"
         return None
 
-    caminhada = isinstance(treino, WalkingWorkout)
     if existente:
         esporte = (api.get_workout_by_id(existente["workoutId"]).get("sportType") or {}).get("sportTypeKey")
-        if esporte == ("walking" if caminhada else "running"):
+        if esporte == "running":
             api.update_workout(existente["workoutId"], treino.to_dict())
             return "atualizado"
-        # trocou corrida <-> caminhada: o tipo de esporte não muda num update
+        # esporte errado (caminhada enviada antes de 2026-10-20, sem esporte):
+        # o tipo de esporte não muda num update -- apaga e cria de novo
         _remover(api, existente)
 
-    criado = api.upload_walking_workout(treino) if caminhada else api.upload_running_workout(treino)
+    criado = api.upload_running_workout(treino)
     api.schedule_workout(criado["workoutId"], data.isoformat())
     return "criado"
 
@@ -332,7 +337,8 @@ def enviar_plano(api: Garmin, dias_do_plano: list[tuple[date, object]], hoje: da
     levantado pra fora. Só envia datas de hoje em diante -- agendar treino no
     passado não faz sentido (relógio nunca vai executá-lo). Com `retomada`,
     toda sessão de evolução da semana vai com a estrutura de caminhada +
-    trote dela; caminhada extra vai como treino de caminhada. Com `forca`
+    trote dela; caminhada extra vai como treino de corrida só por tempo, sem
+    alvo (ver construir_treino). Com `forca`
     (analyze.forca.PrescricaoForca), os dias marcados ganham também o
     treino de força."""
     for data, dia in dias_do_plano:

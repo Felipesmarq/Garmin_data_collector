@@ -1005,7 +1005,13 @@ Frequência de polling, prompt, extras — a definir com base no uso real.
   cumpridas (90% do trote prescrito cada) e confirmadas sem dor (`dor` e
   `dor_tibia_manha` iguais a 0, palpação sem dor). A IA pode acrescentar
   caminhadas leves (tipo `Caminhada`, até 45 min), que não contam como dia
-  de corrida e vão pro relógio como treino de caminhada.
+  de corrida. No relógio vão como treino de **corrida** com um passo só, por
+  tempo, sem alvo: o serviço de treinos do Garmin não tem esporte
+  "caminhada" (nem o app Garmin Connect oferece), e o `WalkingWorkout` da
+  biblioteca manda um id que o Garmin descarta -- a primeira caminhada
+  (20/10) ficou sem esporte e o Forerunner 165 a recusou como
+  "incompatível". Gravada assim, a atividade sai com menos de 6% do tempo
+  correndo e o banco a classifica como `Caminhada`.
 - **Sinais de alerta** (#6): `sinal_alerta` na aba "Dor" (dor pontual na
   tíbia, ao caminhar, em repouso ou à noite -- podem indicar fratura por
   estresse). Com um alerta sem `liberado_em`: o sync diário
@@ -1025,8 +1031,9 @@ Frequência de polling, prompt, extras — a definir com base no uso real.
   min, Longão na retomada; fora dela, intensidade com dor e sessão acima do
   teto sem aumento.
 - [x] Alerta ativo/liberado testado contra o banco real numa transação
-  desfeita no final; caminhada montada como treino de caminhada (walking)
-  pro relógio.
+  desfeita no final. Caminhada: o formato de caminhada (walking) passou no
+  teste offline mas falhou na API real (bug de 2026-10-20, acima); corrigido
+  pra treino de corrida só por tempo, conferido na API (esporte `running`).
 - [ ] Primeiro uso real: aba "Dor" migrada com as colunas novas e um
   domingo com o plano gerado pelas regras novas.
 

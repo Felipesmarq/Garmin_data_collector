@@ -253,6 +253,11 @@ primeiro dia de força começa com o teste de elevação de calcanhar,
 registrado na aba "Teste Calcanhar". A força também vai pro relógio, como
 treino de força.
 
+**Pelada às segundas.** Segunda-feira é dia de pelada (alto impacto, fora
+do plano): o plano nunca tem treino na segunda, a terça não tem corrida, e o
+domingo, que abre a semana com corrida, não tem força. Ver
+[`src/analyze/semana.py`](src/analyze/semana.py).
+
 `planilha_desempenho` sobrescreve as abas "Atividades" (snapshot de
 `vw_sessoes`: pace, velocidade, FC, efeito de treino) e "Resumo Semanal"
 (snapshot de `vw_resumo_semanal`: km, variação %, ACWR) a cada execução —

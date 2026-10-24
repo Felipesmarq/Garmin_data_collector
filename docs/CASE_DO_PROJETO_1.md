@@ -1089,6 +1089,20 @@ junto com a progressão de corrida, não no lugar dela.
 - [ ] Primeiro uso real: plano de domingo com força, aba "Força" criada e
   o treino de força aceito pela API do Garmin.
 
+### Rotina fixa: pelada às segundas (2026-10-24)
+Segunda-feira é dia de pelada (futebol), atividade de alto impacto que o
+corredor faz por conta própria, sem gravar no relógio. Regras em Python
+(`semana.dias_pelada` e afins, conferidas em `violacoes_regras`) e
+explícitas no prompt:
+- **Segunda:** nada planejado (descanso no plano, motivo cita a pelada).
+- **Terça:** sem corrida -- a pelada conta como dia de impacto na regra de
+  alternância (caminhada leve pode).
+- **Domingo:** a semana começa com corrida (pedido do usuário), mas sem
+  força -- a panturrilha não pode chegar cansada a um dia de impacto.
+Na retomada, isso deixa uma só combinação pras 3 sessões de evolução
+(domingo, quarta e sexta; sábado já era proibido), com a força na quarta e
+na sexta.
+
 ### Próximas fases (sugestões do treinador, avaliadas em 2026-10-14)
 Ordem combinada com o usuário, depois de uma limpeza/modularização do
 código (feita em 2026-10-14):

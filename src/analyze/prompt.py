@@ -103,6 +103,10 @@ def construir_prompt(
     dias: list[date],
     dias_passados: list[date],
     dias_pos_corrida: list[date],
+    dias_pelada: list[date],
+    dias_pos_pelada: list[date],
+    vesperas_pelada: list[date],
+    comeca_no_domingo: bool,
 ) -> str:
     dias_txt = ", ".join(f"{nome} {d.strftime('%d/%m')}" for nome, d in zip(DIAS_SEMANA_PT, dias))
     partes = [
@@ -164,6 +168,19 @@ def construir_prompt(
             "depois de um dia em que o corredor correu (a regra de alternância vale também na "
             "virada da semana).",
         ]
+    if dias_pelada:
+        partes += [
+            "",
+            f"Rotina fixa do corredor: {_txt(dias_pelada)} é dia de PELADA (futebol), atividade "
+            "de ALTO IMPACTO que ele faz por conta própria, fora do plano -- trate como um dia de "
+            "carga alta pra tíbia. Por isso: nunca planeje nada nesse dia (`descanso: true`, com "
+            "o motivo citando a pelada); "
+            + (f"{_txt(dias_pos_pelada)}, logo depois, não tem corrida (caminhada leve pode); " if dias_pos_pelada else "")
+            + (f"e {_txt(vesperas_pelada)}, véspera da pelada, não tem força (a panturrilha não "
+               "pode chegar cansada a um dia de impacto)." if vesperas_pelada else ""),
+        ]
+    if comeca_no_domingo:
+        partes += ["", f"Os treinos da semana começam no {DIAS_SEMANA_PT[0]}: o primeiro dia tem que ter corrida."]
     partes += [
         "",
         "Quantos dias de treino a semana tem é decisão sua, com base nos dados -- não há "

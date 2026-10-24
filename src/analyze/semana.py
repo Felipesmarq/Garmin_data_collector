@@ -44,3 +44,24 @@ def max_corridas(livres: list[date]) -> int:
         if ultimo is None or (d - ultimo).days > 1:
             total, ultimo = total + 1, d
     return total
+
+
+# Rotina fixa do corredor (2026-10-24): segunda-feira é dia de pelada
+# (futebol), atividade de alto impacto fora do plano. Segunda nunca tem treino
+# planejado; terça não tem corrida (alternância: a pelada conta como dia de
+# impacto); domingo, véspera da pelada, não tem força (panturrilha cansada
+# antes de impacto, ver CASE_DO_PROJETO_1.md); e a semana começa com corrida
+# no domingo.
+DIA_PELADA = 0  # date.weekday() da segunda
+
+
+def dias_pelada(dias: list[date]) -> list[date]:
+    return [d for d in dias if d.weekday() == DIA_PELADA]
+
+
+def dias_pos_pelada(dias: list[date]) -> list[date]:
+    return [d for d in dias if (d - timedelta(days=1)).weekday() == DIA_PELADA]
+
+
+def vesperas_pelada(dias: list[date]) -> list[date]:
+    return [d for d in dias if (d + timedelta(days=1)).weekday() == DIA_PELADA]

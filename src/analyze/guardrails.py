@@ -132,12 +132,24 @@ def violacoes_regras(plano: PlanoSemanal, ctx: "ContextoSemana") -> list[str]:
     for i in corridas:
         if dias[i] in ctx.dias_pos_corrida:
             problemas.append(f"{DIAS_SEMANA_PT[i]} ({dias[i]}): corrida logo depois de um dia de corrida")
+    for i in treinos:
+        if dias[i] in ctx.dias_pelada:
+            problemas.append(f"{DIAS_SEMANA_PT[i]} ({dias[i]}): dia de pelada, não pode ter treino planejado")
+    for i in corridas:
+        if dias[i] in ctx.dias_pos_pelada:
+            problemas.append(f"{DIAS_SEMANA_PT[i]} ({dias[i]}): corrida logo depois da pelada (dia de alto impacto)")
+    if ctx.comeca_no_domingo and 0 not in corridas:
+        problemas.append(f"{DIAS_SEMANA_PT[0]}: a semana tem que começar com corrida")
+
     dias_forca = [i for i, d in enumerate(plano.dias) if d.forca]
     for i in dias_forca:
         if i not in corridas:
             problemas.append(f"{DIAS_SEMANA_PT[i]}: força marcada em dia sem corrida (descanso ou caminhada)")
-    if len(dias_forca) != min(SESSOES_FORCA, len(corridas)):
-        problemas.append(f"força em {len(dias_forca)} dia(s), pedido {min(SESSOES_FORCA, len(corridas))} (depois da corrida)")
+        if dias[i] in ctx.vesperas_pelada:
+            problemas.append(f"{DIAS_SEMANA_PT[i]}: força na véspera da pelada")
+    elegiveis = [i for i in corridas if dias[i] not in ctx.vesperas_pelada]
+    if len(dias_forca) != min(SESSOES_FORCA, len(elegiveis)):
+        problemas.append(f"força em {len(dias_forca)} dia(s), pedido {min(SESSOES_FORCA, len(elegiveis))} (depois da corrida)")
     for i in treinos:
         dia = plano.dias[i]
         if eh_caminhada(dia) and dia.duracao_min and dia.duracao_min > CAMINHADA_MAX_MIN:

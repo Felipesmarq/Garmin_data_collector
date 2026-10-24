@@ -31,7 +31,7 @@ from src.analyze.retomada import (
     referencias_trote,
     trote_prescrito,
 )
-from src.analyze.semana import dias_passados, max_corridas
+from src.analyze.semana import dias_passados, dias_pelada, dias_pos_pelada, max_corridas, vesperas_pelada
 from src.db import consultar
 from src.planilha import obter_aba
 from src.sintomas import LIMIAR_DOR_TIBIA, alertas_desde, com_dor_tibia
@@ -107,6 +107,10 @@ class ContextoSemana:
     dor_recente: int | None  # dor na tíbia da sessão mais recente com registro
     dias_passados: list[date]  # têm que ser descanso
     dias_pos_corrida: list[date]  # sem corrida (caminhada pode)
+    dias_pelada: list[date]  # segunda: pelada, sem nada planejado
+    dias_pos_pelada: list[date]  # terça: sem corrida (caminhada pode)
+    vesperas_pelada: list[date]  # domingo: sem força
+    comeca_no_domingo: bool  # a semana abre com corrida no 1º dia (se ele estiver livre)
     sessoes_evolucao: int  # sessões de evolução da retomada nesta semana
     forca: PrescricaoForca
     observacoes: str
@@ -145,6 +149,10 @@ class ContextoSemana:
             self.dias,
             self.dias_passados,
             self.dias_pos_corrida,
+            self.dias_pelada,
+            self.dias_pos_pelada,
+            self.vesperas_pelada,
+            self.comeca_no_domingo,
         )
 
 
@@ -172,7 +180,8 @@ def carregar_contexto(con: psycopg.Connection, spreadsheet: gspread.Spreadsheet,
 
     passados = dias_passados(dias)
     pos_corrida = _dias_pos_corrida(con, dias)
-    livres = [d for d in dias if d not in passados and d not in pos_corrida]
+    pelada, pos_pelada = dias_pelada(dias), dias_pos_pelada(dias)
+    livres = [d for d in dias if d not in passados and d not in pos_corrida and d not in pelada and d not in pos_pelada]
     # evolução da retomada nunca no último dia (a dor da manhã seguinte tem
     # que estar registrada antes do plano seguinte, que roda domingo às 6h)
     livres_evolucao = [d for d in livres if d != dias[-1]]
@@ -195,6 +204,10 @@ def carregar_contexto(con: psycopg.Connection, spreadsheet: gspread.Spreadsheet,
         dor_recente=dor_recente,
         dias_passados=passados,
         dias_pos_corrida=pos_corrida,
+        dias_pelada=pelada,
+        dias_pos_pelada=pos_pelada,
+        vesperas_pelada=vesperas_pelada(dias),
+        comeca_no_domingo=dias[0] in livres,
         sessoes_evolucao=min(RETOMADA_SESSOES, max_corridas(livres_evolucao)),
         forca=prescrever(spreadsheet, dias[0], travar=dor_semana or houve_alerta),
         observacoes=observacoes_recentes(spreadsheet),

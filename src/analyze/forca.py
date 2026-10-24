@@ -192,7 +192,7 @@ def instrucao_forca(n_dias: int | None, teste: bool) -> str:
         f"A sessão de força (bloco A, panturrilha e tíbia, e bloco B, quadril e coxa, uns 40 min) "
         f"é feita logo depois da corrida desses dias, pra panturrilha nunca chegar cansada à "
         f"corrida seguinte. O conteúdo da força é calculado pelo sistema: não liste exercícios. "
-        f"Nunca marque força em descanso ou caminhada."
+        f"Nunca marque força em descanso ou caminhada, nem na véspera da pelada."
         + (" Nesta semana o primeiro dia de força começa com o teste de elevação de calcanhar." if teste else "")
     )
 

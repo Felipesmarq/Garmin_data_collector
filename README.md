@@ -259,7 +259,9 @@ domingo, que abre a semana com corrida, não tem força. Ver
 [`src/analyze/semana.py`](src/analyze/semana.py).
 
 `planilha_desempenho` sobrescreve as abas "Atividades" (snapshot de
-`vw_sessoes`: pace, velocidade, FC, efeito de treino) e "Resumo Semanal"
+`vw_sessoes`: pace, velocidade, FC, efeito de treino e `tempo_correndo_min`,
+os minutos que o relógio detectou como corrida -- em número, pra dar
+gráfico da evolução do tempo de corrida por treino) e "Resumo Semanal"
 (snapshot de `vw_resumo_semanal`: km, variação %, ACWR) a cada execução —
 não acumula histórico duplicado, sempre reflete o estado atual do banco.
 

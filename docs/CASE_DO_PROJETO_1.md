@@ -701,7 +701,11 @@ responsabilidade:
   (pace, velocidade, km, ACWR) sobrescrito a cada execução, sem upsert em
   nenhuma tabela — pra acompanhar desempenho/evolução sem abrir o Neon.
   Nota: o mecanismo de escrita de "Atividades" é revisado na Fase 9
-  (seção 7) — deixa de ser sobrescrita total e passa a ser upsert.
+  (seção 7) — deixa de ser sobrescrita total e passa a ser upsert. Desde
+  2026-10-24 tem a coluna `tempo_correndo_min` (minutos detectados como
+  corrida, em número decimal, pra gráfico da evolução do tempo de corrida
+  por treino); a aba existente ganha a coluna por migração
+  (`migrar_aba_atividades`), com o histórico preenchido a partir do banco.
 
 A mecânica de planilha (conectar, abrir/criar aba, inserir/sobrescrever
 linhas) foi extraída pra `src/planilha.py`, compartilhada pelos dois

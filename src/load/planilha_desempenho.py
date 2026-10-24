@@ -36,7 +36,7 @@ COR_ATIVIDADES = (0.16, 0.42, 0.75)  # azul
 
 # Colunas de atividade real (upsert por activity_id, ver escrever_atividades).
 COLUNAS_REAIS = [
-    "activity_id", "data", "nome", "tipo", "distancia_km", "duracao_min", "pace_min_km",
+    "activity_id", "data", "nome", "tipo", "distancia_km", "duracao_min", "segundos_correndo", "pace_min_km",
     "velocidade_media_mps", "fc_media", "fc_maxima", "cadencia_media",
     "efeito_treino_aerobico", "classificacao_atividade",
 ]
@@ -62,7 +62,7 @@ STATUS_SUSPENSO = "SUSPENSO"
 
 # nome de exibição, quando difere da coluna real (ex.: escrevemos km/h na
 # planilha, mas a coluna em vw_sessoes -- e o valor bruto da Garmin -- é m/s)
-RENOMEAR_CABECALHO = {"velocidade_media_mps": "velocidade_media_kmh"}
+RENOMEAR_CABECALHO = {"velocidade_media_mps": "velocidade_media_kmh", "segundos_correndo": "tempo_correndo_min"}
 CABECALHO_ATIVIDADES = [RENOMEAR_CABECALHO.get(c, c) for c in COLUNAS_ATIVIDADES]
 
 ABA_RESUMO_SEMANAL = "Resumo Semanal"
@@ -79,6 +79,12 @@ def _pace(v) -> str:
     sem ele, o Sheets interpreta "5:32" como horário (USER_ENTERED) e mostra
     "05:32:00"."""
     return "" if v is None else f"'{pace_txt(v)}"
+
+
+def _minutos(v) -> str:
+    """Segundos -> minutos com 1 casa (ex. 269 -> "4,5"): número que o Sheets
+    consegue somar e pôr em gráfico, diferente de "M:SS" (texto)."""
+    return "" if v is None else numero_br(float(v) / 60, casas=1, remover_zero_a_direita=True)
 
 
 def _percentual(v) -> str:
@@ -124,6 +130,7 @@ FORMATADORES = {
     "tipo": partial(_traduzir, dicionario=TRADUCAO_TIPO),
     "distancia_km": partial(numero_br, casas=2, remover_zero_a_direita=True),
     "duracao_min": partial(numero_br, casas=1, remover_zero_a_direita=True),
+    "segundos_correndo": _minutos,
     "pace_min_km": _pace,
     "velocidade_media_mps": _velocidade_kmh,
     "cadencia_media": partial(numero_br, casas=0),
@@ -147,10 +154,32 @@ def _formatar_linhas(cabecalho: list[str], linhas: list[tuple]) -> list[tuple]:
     ]
 
 
+COLUNA_TEMPO_CORRENDO = RENOMEAR_CABECALHO["segundos_correndo"]
+
+
+def migrar_aba_atividades(con: psycopg.Connection, spreadsheet) -> None:
+    """Aba criada antes da coluna `tempo_correndo_min` (2026-10-24): insere
+    a coluna no lugar dela (logo depois de `duracao_min`) e preenche as
+    atividades que já estão na aba, a partir do banco. Precisa rodar antes
+    de qualquer leitura da aba por posição de coluna -- por isso é chamada
+    também pelo passo de alertas, que roda antes do dashboard no sync."""
+    aba = obter_aba(spreadsheet, ABA_ATIVIDADES, CABECALHO_ATIVIDADES, cor=COR_ATIVIDADES)
+    cabecalho = aba.row_values(1)
+    if COLUNA_TEMPO_CORRENDO in cabecalho or "duracao_min" not in cabecalho:
+        return
+    tempos = dict(con.execute("SELECT activity_id, segundos_correndo FROM vw_sessoes").fetchall())
+    ids = aba.col_values(CABECALHO_ATIVIDADES.index("activity_id") + 1)[1:]
+    ids += [""] * (aba.row_count - 1 - len(ids))  # a coluna inserida cobre a aba toda
+    coluna = [COLUNA_TEMPO_CORRENDO] + [_minutos(tempos.get(int(i))) if i else "" for i in ids]
+    posicao = cabecalho.index("duracao_min") + 2  # 1-based, logo depois de duracao_min
+    aba.insert_cols([coluna], col=posicao, value_input_option="USER_ENTERED", inherit_from_before=True)
+
+
 def escrever_atividades(con: psycopg.Connection, spreadsheet) -> int:
     """Upsert por `activity_id`: só insere atividade que ainda não está na
     planilha, no topo (mais recente primeiro) -- nunca reescreve a aba
     inteira (ver módulo)."""
+    migrar_aba_atividades(con, spreadsheet)
     aba = obter_aba(spreadsheet, ABA_ATIVIDADES, CABECALHO_ATIVIDADES, cor=COR_ATIVIDADES)
     if "activity_id" not in aba.row_values(1):
         # aba criada antes de existir a coluna activity_id -- migração

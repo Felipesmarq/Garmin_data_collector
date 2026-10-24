@@ -19,6 +19,7 @@ from src.email_util import enviar_email
 from src.extract.garmin import conectar as conectar_garmin
 from src.load.planilha_desempenho import (
     ABA_ATIVIDADES,
+    migrar_aba_atividades,
     CABECALHO_ATIVIDADES,
     COR_ATIVIDADES,
     STATUS_PLANEJADO,
@@ -72,6 +73,7 @@ def _remover_do_relogio(datas: list[date]) -> None:
 
 if __name__ == "__main__":
     con = conectar()
+    migrar_aba_atividades(con, conectar_planilha())  # antes de ler a aba por posição
     alertas = alertas_ativos(con)
     con.close()
     if not alertas:

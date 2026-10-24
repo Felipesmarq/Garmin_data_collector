@@ -192,18 +192,8 @@ def construir_prompt(
         "descanso** (um item por dia, `descanso: true` e o resto dos campos nulos "
         "nesse caso). Pra cada treino: tipo (da lista acima), distância ou duração "
         "alvo, **pace alvo em min/km e FC alvo em bpm** (nunca %VO2max), e uma frase "
-        "curta do porquê desse treino nesse momento, com base nos dados. Pra tipo de "
-        "treino sem histórico do corredor ainda, pode sugerir mesmo sem estar no plano "
-        "da semana -- coloque em `estimativas_futuras`, estimando pace/FC a partir do "
-        "que ele já demonstrou nos tipos mais próximos (ex. Limiar é mais rápido que "
-        "Ritmo), nunca dentro do plano da semana em si. Em `prazo_estimado`, seja "
-        "específico e explicativo sobre QUANDO -- não \"no futuro\" ou \"quando estiver "
-        "pronto\": diga um critério concreto (ex. \"depois de 2 semanas seguidas de "
-        "Limiar sem dor\") ou uma janela de tempo estimada (ex. \"provavelmente em "
-        "3-4 semanas, no ritmo de evolução atual\"), baseado no protocolo de retomada "
-        "pós-canelite (progressão só após sessões consecutivas sem dor) e no "
-        "histórico real de progressão do corredor. Feche com uma frase em "
-        "`logica_geral` resumindo a lógica geral da semana.",
+        "curta do porquê desse treino nesse momento, com base nos dados. Feche com uma "
+        "frase em `logica_geral` resumindo a lógica geral da semana.",
     ]
     return "\n".join(partes)
 

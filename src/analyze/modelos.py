@@ -35,20 +35,11 @@ class TreinoDia(BaseModel):
     motivo: str
 
 
-class EstimativaFutura(BaseModel):
-    """Tipos de treino sem histórico do corredor ainda (ex. Intervalado,
-    Tiro) -- referência pra quando ele for tentar, não faz parte do plano
-    da semana em si."""
-    tipo_treino: str
-    pace_alvo: str
-    fc_alvo: str
-    prazo_estimado: str  # critério/tempo explícito pra chegar lá, não "no futuro"
-    nota: str
-
-
 class PlanoSemanal(BaseModel):
+    # Sem `estimativas_futuras` (previsão de pace/prazo pra tipos de treino
+    # ainda não tentados) desde 2026-10-24: o usuário achou desconexo do plano
+    # e sem utilidade -- tirado do prompt e do schema.
     dias: list[TreinoDia]
-    estimativas_futuras: list[EstimativaFutura] = []
     logica_geral: str
 
 

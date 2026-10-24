@@ -287,10 +287,9 @@ sobrescreve o histórico) -- e manda o plano completo por e-mail
 (`EMAIL_DESTINATARIO`, opcional -- por padrão manda pro próprio
 `EMAIL_REMETENTE`).
 
-Estimativas pra tipos de treino ainda não tentados (ex. Intervalado, Tiro)
-e a frase-resumo da semana **não vão pra planilha** (não são "1 linha por
-dia", não fazem sentido no histórico tabular) -- ficam só no terminal e
-no e-mail.
+A frase-resumo da semana **não vai pra planilha** (não é "1 linha por
+dia", não faz sentido no histórico tabular) -- fica só no terminal e no
+e-mail.
 
 **Aba "Observações"**: texto livre, 100% preenchido por você (o script só
 lê, nunca escreve) -- colunas `semana_inicio` e `observacao`. Contexto que

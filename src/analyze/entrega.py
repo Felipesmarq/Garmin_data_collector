@@ -42,9 +42,9 @@ def _linhas_plano(plano: PlanoSemanal, dias: list[date]) -> list[tuple]:
     # ("sábado" minúsculo em vez de "Sábado"); nome do dia é dado
     # determinístico, não precisa confiar na IA pra isso.
     #
-    # Só linhas de dia (1 dia = 1 linha, 7 por semana) -- estimativas_futuras
-    # e logica_geral não têm dia específico e "não se encaixam" numa tabela
-    # de histórico por dia; vão só pro e-mail (ver enviar_email_resumo).
+    # Só linhas de dia (1 dia = 1 linha, 7 por semana) -- logica_geral não
+    # tem dia específico e "não se encaixa" numa tabela de histórico por dia;
+    # vai só pro e-mail (ver enviar_email_resumo).
     return [
         (
             nome_dia,
@@ -199,8 +199,7 @@ def escrever_dias_planejados(spreadsheet, plano: PlanoSemanal, dias: list[date],
 
 
 def texto_plano(plano: PlanoSemanal, dias: list[date], forca: PrescricaoForca | None = None) -> str:
-    """Plano completo em texto -- dia a dia + força + estimativas futuras +
-    lógica geral. Compartilhado entre o print do terminal, o corpo do e-mail
+    """Plano completo em texto -- dia a dia + força + lógica geral. Compartilhado entre o print do terminal, o corpo do e-mail
     (enviar_email_resumo) e a revisão de coerência, pra não duplicar a
     formatação."""
     linhas = []
@@ -223,13 +222,6 @@ def texto_plano(plano: PlanoSemanal, dias: list[date], forca: PrescricaoForca | 
         linhas.append(forca.texto())
         if forca.decisoes:
             linhas.append("  Progressão desta semana: " + "; ".join(forca.decisoes) + ".")
-    if plano.estimativas_futuras:
-        linhas.append("")
-        linhas.append("Estimativas pra tipos ainda não tentados:")
-        for est in plano.estimativas_futuras:
-            linhas.append(f"  {est.tipo_treino}: pace {est.pace_alvo}, FC {est.fc_alvo}")
-            linhas.append(f"    Prazo estimado: {est.prazo_estimado}")
-            linhas.append(f"    {est.nota}")
     linhas.append("")
     linhas.append(f"Lógica da semana: {plano.logica_geral}")
     return "\n".join(linhas)
@@ -247,7 +239,7 @@ def imprimir_plano(plano: PlanoSemanal, dias: list[date], forca: PrescricaoForca
 
 
 def enviar_email_resumo(plano: PlanoSemanal, dias: list[date], forca: PrescricaoForca | None = None) -> None:
-    """Plano completo (dia a dia + estimativas + lógica geral) por e-mail --
+    """Plano completo (dia a dia + força + lógica geral) por e-mail --
     esse conteúdo "não se encaixa" na aba "Plano da Semana" (ver
     _linhas_plano, que só guarda 1 linha por dia como histórico), então vai
     só pro e-mail e pro print do terminal."""

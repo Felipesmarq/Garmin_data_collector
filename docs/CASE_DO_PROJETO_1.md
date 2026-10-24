@@ -612,11 +612,10 @@ inteira. Implementado como segundo guardrail determinístico
 (`instrucao_guardrail_dor`, mesmo padrão do guardrail de ACWR — Python
 calcula, prompt recebe instrução obrigatória, não sugestão): se a dor
 mais recente registrada em `stg_dor` for **nível 2 ou mais** (escala
-0-5), a semana inteira fica restrita a Rodagem/Recuperação ou Longão,
-nenhum tipo de intensidade — mesmo que o ACWR estivesse permitindo.
-Validado contra dado real: com dor recente = 2, o plano gerado zerou
-intensidade nos treinos da semana e moveu Intervalado/Tiro só pras
-`estimativas_futuras` (fora do plano em si), como esperado.
+0-5; **1 ou mais desde a Fase A**, 2026-10), a semana inteira fica restrita
+a Rodagem/Recuperação ou Longão, nenhum tipo de intensidade — mesmo que o
+ACWR estivesse permitindo. Validado contra dado real: com dor recente = 2,
+o plano gerado zerou intensidade nos treinos da semana, como esperado.
 
 **Fontes:** [Seiler & Kjerland (2006) — resumo do treino polarizado](https://bodyrecomposition.com/training/hard-days-hard-easy-days-easy) · [Princípio hard/easy — RunSpirited](https://www.runspirited.com/single-post/why-runners-should-embrace-hard-days-hard-easy-days-easy) · [Protocolo de retomada em 6 fases pós-shin splints — Ubie Doctor's Note](https://ubiehealth.com/doctors-note/shin-splints-treatments-return-running-protocol-5762q2) · [Medial Tibial Stress Syndrome — Physiopedia](https://www.physio-pedia.com/Medial_Tibial_Stress_Syndrome)
 
@@ -745,12 +744,14 @@ histórico quanto pra recomendação. Escrito na aba "Plano da Semana"
 (`escrever_plano`) em modo **append-only**, idempotente pelas 7 datas da
 semana -- cada semana é um registro histórico que se acumula, não
 um snapshot pra sobrescrever (diferente do dashboard da Fase 6). Só as
-7 linhas de dia vão pra planilha -- `estimativas_futuras` (tipos de
-treino sem histórico ainda, ex. Intervalado/Tiro, cada uma com
-`prazo_estimado` explicando quando/sob que critério tentar) e
-`logica_geral` não têm "1 dia" pra ocupar numa tabela histórica, então
-vão só pro terminal e pro **e-mail semanal** (`enviar_email_resumo`,
+7 linhas de dia vão pra planilha -- `logica_geral` não tem "1 dia" pra
+ocupar numa tabela histórica, então vai só pro terminal e pro **e-mail
+semanal** (`enviar_email_resumo`,
 Gmail SMTP via `smtplib` da biblioteca padrão -- zero dependência nova).
+Até 2026-10-24 o plano também trazia `estimativas_futuras` (pace, FC e
+prazo pra tipos de treino ainda não tentados, como Limiar e Tiro); saíram
+do prompt e do schema a pedido do usuário, por serem desconexas do plano da
+semana e sem utilidade prática.
 Prompt também lê a aba "Observações" (`observacoes_recentes`) -- texto
 livre por semana, 100% preenchido pelo usuário, nunca escrito pelo
 script, mesma janela de 4 semanas dos outros dados.
@@ -773,7 +774,7 @@ sucessivas com os mesmos dados de entrada.
 - [x] Chave da API vem de variável de ambiente (`GEMINI_API_KEY`), nunca hardcoded.
 - [x] Chamada real ao Gemini testada ponta a ponta -- validada múltiplas vezes com dado real, incluindo os dois guardrails disparando juntos.
 - [x] Escrita na planilha é idempotente (rodar 2x na mesma semana não duplica linha) -- testado.
-- [x] E-mail semanal (plano completo + estimativas futuras + lógica geral) enviado e recebido -- confirmado pelo usuário em teste real.
+- [x] E-mail semanal (plano completo + lógica geral) enviado e recebido -- confirmado pelo usuário em teste real.
 
 ### Fase 8 — Orquestração (GitHub Actions)
 **Requisitos:** dois workflows, sem Docker (`actions/setup-python`,

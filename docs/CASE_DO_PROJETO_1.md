@@ -547,7 +547,11 @@ máxima), o que a estrutura de split não é. Regra (implementada em
   2026-10-13, tag `AJUSTE-RITMO-RECOVERY` no `schema.sql`: caminhada +
   trote no calor e em ladeira passou de 30% na zona 3 sem esforço de
   ritmo).
-- Zonas 1+2 ≥ 85% do tempo e duração ≥ 35min → **Longão**.
+- Zonas 1+2 ≥ 85% do tempo e duração ≥ 35min → **Longão**. Desde
+  2026-10-24 também exige pelo menos metade do tempo correndo (ajuste
+  experimental, tag `AJUSTE-LONGAO-RUNWALK` no `schema.sql`): a caminhada +
+  trote da retomada de 21/10, com ~14% correndo, virava "Longão" só por
+  passar de 35 min.
 - Efeito anaeróbico ≥ 1.5 e zonas 4+5 ≥ 30% → **Tiro** (duração < 20min)
   ou **Intervalado** (duração ≥ 20min).
 - `efeito_treino_label = 'UNKNOWN'` → **Caminhada** (mesmo critério de

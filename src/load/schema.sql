@@ -262,7 +262,17 @@ SELECT
         WHEN z.alta / z.total >= 0.20
             OR (z.media / z.total >= 0.30 AND a.efeito_treino_label IS DISTINCT FROM 'RECOVERY')
             THEN 'Ritmo'
-        WHEN z.baixa / z.total >= 0.85 AND a.duracao_seg / 60.0 >= 35 THEN 'Longão'
+        -- [AJUSTE-LONGAO-RUNWALK 2026-10-24] experimental -- pra desfazer,
+        -- troque as 3 linhas abaixo por:
+        --   WHEN z.baixa / z.total >= 0.85 AND a.duracao_seg / 60.0 >= 35 THEN 'Longão'
+        -- Motivo: sessão de caminhada + trote da retomada de 21/10 (35 min,
+        -- ~14% correndo) virou "Longão" só por passar de 35 min em zona baixa,
+        -- e o planejado x realizado deu fora da margem. Longão é corrida longa:
+        -- passa a exigir pelo menos metade do tempo correndo (sem splits de
+        -- run/walk, ex. esteira, vale como antes).
+        WHEN z.baixa / z.total >= 0.85 AND a.duracao_seg / 60.0 >= 35
+            AND COALESCE(s.segundos_correndo / NULLIF(s.segundos_correndo + s.segundos_caminhando, 0), 1) >= 0.5
+            THEN 'Longão'
         ELSE 'Rodagem/Recuperação'
     END AS tipo_treino,
     -- km_corridos: distância ponderada pela fração do tempo em RWD_RUN --

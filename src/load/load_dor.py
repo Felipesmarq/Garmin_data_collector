@@ -43,6 +43,10 @@ COLUNAS_STG_DOR = [
 ]
 NIVEIS_DOR = [str(n) for n in range(6)]
 SIM, NAO = "sim", "não"
+# Linha nova já vem "sem dor" (decisão do usuário, 2026-10-24): ele só muda
+# o que doeu, antes da análise semanal. Sem isso, toda sessão sem registro
+# repetia o estágio da retomada.
+PADROES = {"dor": "0", "dor_tibia_manha": "0", "palpacao_dor": NAO, "sinal_alerta": SINAIS_ALERTA[0]}
 DROPDOWNS = {
     "dor": NIVEIS_DOR,
     "dor_tibia_manha": NIVEIS_DOR,
@@ -94,7 +98,8 @@ def obter_aba_dor(spreadsheet: gspread.Spreadsheet) -> gspread.Worksheet:
 
 
 def exportar_pendentes(con: psycopg.Connection, aba: gspread.Worksheet) -> int:
-    """Atividades sem linha em stg_dor E sem linha na planilha viram linha nova."""
+    """Atividades sem linha em stg_dor E sem linha na planilha viram linha
+    nova, já com os sintomas no padrão "sem dor" (PADROES)."""
     ja_na_planilha = ids_na_coluna(aba)
     atividades = con.execute(
         "SELECT activity_id, data, nome, tipo FROM stg_atividades "
@@ -104,8 +109,8 @@ def exportar_pendentes(con: psycopg.Connection, aba: gspread.Worksheet) -> int:
     novas = [a for a in atividades if a[0] not in ja_na_planilha]
     if not novas:
         return 0
-    em_branco = [""] * (len(CABECALHO) - 4)
-    inserir_linhas(aba, [[aid, str(data), nome, tipo, *em_branco] for aid, data, nome, tipo in novas])
+    sintomas = [PADROES.get(c, "") for c in CABECALHO[4:]]
+    inserir_linhas(aba, [[aid, str(data), nome, tipo, *sintomas] for aid, data, nome, tipo in novas])
     return len(novas)
 
 

@@ -5,7 +5,7 @@ alerta sem `liberado_em`, os dias planejados da semana que ainda não
 passaram viram SUSPENSO na aba "Atividades", os treinos deles saem do
 relógio e vai um e-mail de alerta. Idempotente: com os dias já suspensos,
 a execução seguinte não acha nada pra suspender e não manda e-mail de novo
-(o plano de domingo também não é gerado enquanto o alerta não for
+(o plano da semana também não é gerado enquanto o alerta não for
 liberado -- ver analyze/analisar_com_ia.py).
 """
 

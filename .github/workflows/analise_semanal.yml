@@ -1,20 +1,24 @@
 name: Análise semanal
 
-# Roda domingo de manhã (Fase 8 -- ver docs/CASE_DO_PROJETO_1.md seção 7). O job
+# Roda sábado à tarde (Fase 8 -- ver docs/CASE_DO_PROJETO_1.md seção 7). O job
 # "sync" chama sync_atividades.yml como reusable workflow (workflow_call) em
 # vez de duplicar os mesmos 4 passos de carga de dado -- isso também resolve
 # o problema de a análise pegar dado desatualizado por coincidência de
 # horário: ela sincroniza na própria execução, não depende do cron diário já
 # ter rodado antes.
-# 6h BRT domingo = 9h UTC (2h da manhã no Pacífico): fora do pico de uso da
-# API do Gemini, que é quando o 503 "high demand" mais aparece (ver
-# docs/CASE_DO_PROJETO_1.md, 2026-10). O plano é da semana que começa no
-# próprio domingo. 10h BRT = reserva, ainda fora do pico: se o das 6h deu
-# certo, o script vê a semana já escrita e sai sem fazer nada.
+# Sábado 17h17 BRT = 20h17 UTC, com reserva às 21h17 BRT (00h17 UTC de
+# domingo). O agendamento do GitHub atrasa sistematicamente 4-7 h (o cron de
+# domingo 6h só rodava perto das 10h, e o corredor acordava sem plano), então
+# o plano sai na véspera, com folga -- mesmo 7 h atrasado, fica pronto antes
+# de domingo de manhã. Minuto 17, não hora cheia: o GitHub recomenda evitar o
+# início da hora, quando a fila de agendamento congestiona. O plano é da
+# semana que começa no domingo seguinte (semana.semana_alvo); a reserva vê a
+# semana já escrita e sai sem fazer nada. A sessão de sábado é proibida na
+# retomada, então a semana anterior já está completa no sábado à tarde.
 on:
   schedule:
-    - cron: "0 9 * * 0"
-    - cron: "0 13 * * 0"
+    - cron: "17 20 * * 6"
+    - cron: "17 0 * * 0"
   workflow_dispatch:
     inputs:
       semana:

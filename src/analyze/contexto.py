@@ -183,7 +183,7 @@ def carregar_contexto(con: psycopg.Connection, spreadsheet: gspread.Spreadsheet,
     pelada, pos_pelada = dias_pelada(dias), dias_pos_pelada(dias)
     livres = [d for d in dias if d not in passados and d not in pos_corrida and d not in pelada and d not in pos_pelada]
     # evolução da retomada nunca no último dia (a dor da manhã seguinte tem
-    # que estar registrada antes do plano seguinte, que roda domingo às 6h)
+    # que estar registrada antes do plano seguinte, que roda sábado à tarde)
     livres_evolucao = [d for d in livres if d != dias[-1]]
     dor_recente = dor_mais_recente(sessoes)
     restricao = (dor_recente or 0) >= LIMIAR_DOR_TIBIA or houve_alerta

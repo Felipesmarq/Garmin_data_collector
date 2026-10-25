@@ -18,7 +18,7 @@ class Sessao(NamedTuple):
     dor_manha: int | None  # dor na tíbia na manhã seguinte (0-5)
     palpacao: bool | None  # dor ao apertar a borda interna da tíbia
 
-# A semana do plano vai de domingo a sábado (o cron roda domingo às 6h, ver
+# A semana do plano vai de domingo a sábado (o cron roda no sábado à tarde, ver
 # analise_semanal.yml) -- não é a semana ISO.
 DIAS_SEMANA_PT = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"]
 

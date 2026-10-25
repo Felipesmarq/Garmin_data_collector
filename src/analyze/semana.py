@@ -11,8 +11,9 @@ def semana_alvo() -> list[date]:
     pedido ao LLM (aritmética de data não é trabalho pra prompt).
 
     Por padrão é a semana que começa no próximo domingo -- o próprio dia,
-    quando roda no domingo (o cron roda domingo às 6h, planejando a semana
-    que começa ali). A variável de ambiente SEMANA_PLANO=atual muda pra
+    quando roda no domingo (o cron roda sábado à tarde, planejando a semana
+    que começa no dia seguinte; atrasado pra depois da meia-noite, ainda é
+    a mesma semana). A variável de ambiente SEMANA_PLANO=atual muda pra
     semana já começada (domingo mais recente): serve pra reexecução manual
     quando o cron falhou (ver workflow_dispatch em analise_semanal.yml); os
     dias que já passaram viram descanso (ver dias_passados).

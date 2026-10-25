@@ -1,15 +1,15 @@
 name: Sync atividades
 
 # Roda 1x/dia (Fase 8 -- ver docs/CASE_DO_PROJETO_1.md seção 7). Horário em UTC:
-# GitHub Actions cron não entende fuso -- 6h BRT = 9h UTC, o mesmo horário da
-# análise semanal (fora do pico, e o dia anterior já fechado: a resolução dos
-# dias planejados e o lembrete tratam de ontem inteiro). Segunda a sábado: no
-# domingo a análise semanal já roda este workflow (workflow_call) antes de
-# gerar o plano, e dois syncs simultâneos disputariam as mesmas linhas da
-# planilha.
+# GitHub Actions cron não entende fuso -- 3h17 BRT = 6h17 UTC. O agendamento
+# do GitHub atrasa 4-7 h, então na prática a planilha fica atualizada entre
+# 7h e 10h, com o dia anterior já fechado (a resolução dos dias planejados e
+# o lembrete tratam de ontem inteiro). Minuto 17 pra fugir do congestionamento
+# da hora cheia. Todo dia: a análise semanal roda no sábado à tarde, longe
+# deste horário, então não há dois syncs disputando as mesmas linhas.
 on:
   schedule:
-    - cron: "0 9 * * 1-6"
+    - cron: "17 6 * * *"
   workflow_dispatch: {}
   # Permite analise_semanal.yml chamar este workflow (reusable workflow) em
   # vez de duplicar os mesmos 4 passos de carga de dado.

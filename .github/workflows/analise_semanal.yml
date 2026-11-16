@@ -22,6 +22,10 @@ on:
         description: "Gerar um plano novo mesmo se a semana já tem plano (substitui planilha e treinos do relógio)"
         type: boolean
         default: false
+      entregar:
+        description: "Entregar o plano (desmarcado = ensaio: gera e registra no log de monitoramento, sem planilha nem e-mail)"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -43,12 +47,18 @@ jobs:
       GOOGLE_SHEETS_CREDENTIALS_PATH: .google_sheets_credentials.json
       GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
+      # Variável do repositório, não Secret: o nome do modelo vai pro log de
+      # monitoramento (artifact), que não pode levar segredo. O Secret antigo
+      # fica só como fallback.
+      GEMINI_MODEL: ${{ vars.GEMINI_MODEL || secrets.GEMINI_MODEL }}
       EMAIL_REMETENTE: ${{ secrets.EMAIL_REMETENTE }}
       EMAIL_SENHA_APP: ${{ secrets.EMAIL_SENHA_APP }}
       EMAIL_DESTINATARIO: ${{ secrets.EMAIL_DESTINATARIO }}
       SEMANA_PLANO: ${{ inputs.semana }}
       FORCAR_REGERAR: ${{ inputs.forcar }}
+      # vazio no cron (sem inputs) = entrega normal; só "false" é ensaio
+      ENTREGAR_PLANO: ${{ inputs.entregar }}
+      MONITORAMENTO_AMOSTRAS: ${{ vars.MONITORAMENTO_AMOSTRAS || '1' }}
     steps:
       # Job novo, VM nova -- reusable workflow não compartilha filesystem
       # entre jobs, então o ambiente (checkout, Python, token, credencial)
@@ -64,6 +74,16 @@ jobs:
       - name: Instalar dependências
         run: uv sync --frozen
 
+      # Monitoramento (monitoring/README.md): o log append-only vem da
+      # execução anterior pelo cache (a VM do Actions some no fim do job) --
+      # chave única por run/job; restore-keys pega a mais recente.
+      - name: Restaurar log de monitoramento
+        uses: actions/cache/restore@v4
+        with:
+          path: logs
+          key: monitoramento-${{ github.run_id }}-${{ github.run_attempt }}-analisar
+          restore-keys: monitoramento-
+
       - name: Restaurar credencial do Google Sheets
         run: printf '%s' "$GOOGLE_SHEETS_CREDENTIALS_JSON" > .google_sheets_credentials.json
         env:
@@ -73,10 +93,13 @@ jobs:
       # do Gemini ("high demand") dura mais que os 30s que o nick-fields/retry
       # dava entre tentativas (ver docs/CASE_DO_PROJETO_1.md, 2026-09-21).
       # 4 tentativas no total; a última (espera 0) não dorme depois de falhar.
+      # 15 min por tentativa (eram 5): sob sobrecarga o próprio SDK repete o
+      # 503 por dentro e uma chamada passou de 10 min (log de monitoramento,
+      # 2026-11-16) -- com 5 min a tentativa era morta antes de terminar.
       - name: Gerar análise semanal
         run: |
           for espera in 60 180 420 0; do
-            if timeout 300 uv run python -m src.analyze.analisar_com_ia; then
+            if timeout 900 uv run python -m src.analyze.analisar_com_ia; then
               exit 0
             fi
             if [ "$espera" -gt 0 ]; then
@@ -86,3 +109,28 @@ jobs:
           done
           echo "::error::Análise semanal falhou em todas as tentativas"
           exit 1
+
+      # Mesmo com etapa falhando (if: always): o log de uma execução que
+      # falhou é justamente o que mais interessa. Resumo + .prom só com
+      # biblioteca padrão; o artifact leva o log acumulado inteiro.
+      - name: Resumo do monitoramento
+        if: always()
+        run: uv run --no-sync python monitoring/resumo.py --log logs --saida monitoring_out
+
+      - name: Salvar log de monitoramento
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: logs
+          key: monitoramento-${{ github.run_id }}-${{ github.run_attempt }}-analisar
+
+      - name: Publicar artifact de monitoramento
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: monitoramento-analise-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            logs/
+            monitoring_out/
+          retention-days: 30
+          if-no-files-found: warn

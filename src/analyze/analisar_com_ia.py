@@ -23,6 +23,7 @@ fácil de ajustar/testar, não uma verdade definitiva.
 """
 
 import os
+import time
 from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -36,6 +37,7 @@ from pydantic import BaseModel
 
 from src.db import conectar
 from src.email_util import enviar_email
+from src.monitoramento import Etapa, amostra, contar, etapa, registrar
 from src.tempo import hoje_brt
 from src.load.planilha_desempenho import (
     ABA_ATIVIDADES,
@@ -49,7 +51,8 @@ from src.planilha import conectar as conectar_planilha, inserir_linhas, inserir_
 ROOT = Path(__file__).resolve().parent.parent.parent
 
 JANELA_SEMANAS = 4
-MODELO_PADRAO = "gemini-3.5-flash"
+# 3.5 descontinuado pelo Google em 2026-10 (a main já usa o 3.8)
+MODELO_PADRAO = "gemini-3.8-flash"
 
 # Fase 10 -- teto de tokens do prompt, bem abaixo do limite real do Gemini
 # (até 1M) -- ver gerar_analise().
@@ -389,11 +392,13 @@ def _construir_prompt(
 def _cliente_gemini() -> tuple[genai.Client, str]:
     load_dotenv(ROOT / ".env")
     cliente = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-    modelo = os.environ.get("GEMINI_MODEL", MODELO_PADRAO)
+    # `or`, não default do get: no Actions, GEMINI_MODEL sem variável
+    # configurada chega como string vazia, e o modelo "" quebrava a chamada.
+    modelo = os.environ.get("GEMINI_MODEL") or MODELO_PADRAO
     return cliente, modelo
 
 
-def _verificar_teto_tokens(cliente: genai.Client, modelo: str, texto: str) -> None:
+def _verificar_teto_tokens(cliente: genai.Client, modelo: str, texto: str) -> int:
     """Fase 10 -- rede de segurança, não limite operacional: a janela de 4
     semanas já mantém o prompt bem abaixo disso; um teto bem abaixo do
     limite real do Gemini (até 1M) pega algo que fugiu do esperado (bug de
@@ -405,6 +410,62 @@ def _verificar_teto_tokens(cliente: genai.Client, modelo: str, texto: str) -> No
             f"Prompt com {contagem.total_tokens} tokens, acima do teto de {TETO_TOKENS} -- "
             "algo fugiu do esperado (não é limite normal de operação). Abortando."
         )
+    return contagem.total_tokens
+
+
+def _gerar_json(conteudo: str, schema: type[BaseModel], o_que: str) -> str:
+    """Chamada ao Gemini com saída estruturada (`response_schema`) --
+    compartilhada pela geração e pela revisão. Cada chamada vira uma linha
+    `llm_chamada` no log de monitoramento (src/monitoramento.py): modelo,
+    latência, tokens (usage_metadata) e desfecho."""
+    cliente, modelo = _cliente_gemini()
+    chamada = {"chamada": o_que, "modelo": modelo, "modelo_reserva": False, "prompt_chars": len(conteudo)}
+    inicio = time.perf_counter()
+    try:
+        chamada["prompt_tokens_contados"] = _verificar_teto_tokens(cliente, modelo, conteudo)
+        resposta = cliente.models.generate_content(
+            model=modelo,
+            contents=conteudo,
+            config=types.GenerateContentConfig(
+                # não usamos tools/function calling -- desliga o AFC padrão pra
+                # não gerar o aviso "Direct use of AFC..." a cada chamada, sem
+                # efeito nenhum no resultado.
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                response_mime_type="application/json",
+                response_schema=schema,
+            ),
+        )
+    except Exception as erro:
+        codigo = getattr(erro, "code", None)
+        _registrar_chamada(chamada, inicio, f"erro_{codigo}" if codigo else f"erro_{type(erro).__name__}")
+        raise
+    uso = resposta.usage_metadata
+    if uso is not None:
+        chamada.update(
+            tokens_entrada=uso.prompt_token_count,
+            tokens_saida=uso.candidates_token_count,
+            tokens_raciocinio=uso.thoughts_token_count,
+            tokens_total=uso.total_token_count,
+        )
+    if not resposta.candidates:
+        _registrar_chamada(chamada, inicio, "bloqueado")
+        motivo = resposta.prompt_feedback.block_reason if resposta.prompt_feedback else "desconhecido"
+        raise RuntimeError(f"Gemini bloqueou o prompt de {o_que} (motivo: {motivo}).")
+    finalizacao = resposta.candidates[0].finish_reason
+    chamada["finish_reason"] = getattr(finalizacao, "name", finalizacao)
+    if finalizacao not in (types.FinishReason.STOP, None) or not resposta.text:
+        _registrar_chamada(chamada, inicio, "incompleto")
+        raise RuntimeError(f"Gemini não completou {o_que} (finish_reason={finalizacao}).")
+    chamada["resposta_chars"] = len(resposta.text)
+    _registrar_chamada(chamada, inicio, "ok")
+    return resposta.text
+
+
+def _registrar_chamada(chamada: dict, inicio: float, outcome: str) -> None:
+    registrar("llm_chamada", outcome=outcome, latency_ms=round((time.perf_counter() - inicio) * 1000), **chamada)
+    contar("llm_chamadas")
+    if outcome == "ok":
+        contar("tokens_total", chamada.get("tokens_total") or 0)
 
 
 def gerar_analise(prompt: str) -> str:
@@ -413,31 +474,10 @@ def gerar_analise(prompt: str) -> str:
     Devolve texto (contrato genérico, ver seção 4 do case) -- só que aqui
     esse texto é um JSON validado contra PlanoSemanal (response_schema),
     não texto livre. `response_schema` é config específica do Gemini; fica
-    contida nesta função, então trocar de provedor continua sendo só
-    reescrever `gerar_analise`.
+    contida em `_gerar_json`, então trocar de provedor continua sendo só
+    reescrever essa função.
     """
-    cliente, modelo = _cliente_gemini()
-    _verificar_teto_tokens(cliente, modelo, prompt)
-
-    resposta = cliente.models.generate_content(
-        model=modelo,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            # não usamos tools/function calling -- desliga o AFC padrão pra
-            # não gerar o aviso "Direct use of AFC..." a cada chamada, sem
-            # efeito nenhum no resultado.
-            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-            response_mime_type="application/json",
-            response_schema=PlanoSemanal,
-        ),
-    )
-    if not resposta.candidates:
-        motivo = resposta.prompt_feedback.block_reason if resposta.prompt_feedback else "desconhecido"
-        raise RuntimeError(f"Gemini bloqueou o prompt antes de gerar resposta (motivo: {motivo}).")
-    finalizacao = resposta.candidates[0].finish_reason
-    if finalizacao not in (types.FinishReason.STOP, None) or not resposta.text:
-        raise RuntimeError(f"Gemini não completou a resposta (finish_reason={finalizacao}).")
-    return resposta.text
+    return _gerar_json(prompt, PlanoSemanal, "geração do plano")
 
 
 def _construir_prompt_revisao(prompt_original: str, plano_texto: str) -> str:
@@ -479,26 +519,8 @@ def revisar_coerencia(prompt_original: str, plano_texto: str) -> RevisaoCoerenci
     entrada e violação de guardrail que tenha escapado da restrição de
     vocabulário. Recebe o prompt original (que já contém os dados e as
     instruções de guardrail que dispararam, se algum) + o plano gerado."""
-    cliente, modelo = _cliente_gemini()
     prompt_revisao = _construir_prompt_revisao(prompt_original, plano_texto)
-    _verificar_teto_tokens(cliente, modelo, prompt_revisao)
-
-    resposta = cliente.models.generate_content(
-        model=modelo,
-        contents=prompt_revisao,
-        config=types.GenerateContentConfig(
-            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-            response_mime_type="application/json",
-            response_schema=RevisaoCoerencia,
-        ),
-    )
-    if not resposta.candidates:
-        motivo = resposta.prompt_feedback.block_reason if resposta.prompt_feedback else "desconhecido"
-        raise RuntimeError(f"Gemini bloqueou o prompt de revisão (motivo: {motivo}).")
-    finalizacao = resposta.candidates[0].finish_reason
-    if finalizacao not in (types.FinishReason.STOP, None) or not resposta.text:
-        raise RuntimeError(f"Gemini não completou a revisão (finish_reason={finalizacao}).")
-    return RevisaoCoerencia.model_validate_json(resposta.text)
+    return RevisaoCoerencia.model_validate_json(_gerar_json(prompt_revisao, RevisaoCoerencia, "revisão de coerência"))
 
 
 def _plano_semanal(texto_json: str) -> PlanoSemanal:
@@ -686,13 +708,16 @@ def _texto_plano(plano: PlanoSemanal, dias: list[date]) -> str:
     return "\n".join(linhas)
 
 
-def _imprimir_plano(plano: PlanoSemanal, dias: list[date]) -> None:
+def _imprimir_plano(plano: PlanoSemanal, dias: list[date], entregue: bool = True) -> None:
+    """`entregue=False` no ensaio: no Actions o conteúdo não aparece em lugar
+    nenhum, só os números no log de monitoramento."""
     if EM_CI:
         treinos = sum(1 for d in plano.dias if not d.descanso)
-        print(
-            f"[plano da semana de {dias[0]} gerado: {treinos} treino(s), {7 - treinos} descanso(s) "
-            "-- conteúdo completo no e-mail, na planilha e no relógio]"
+        destino = (
+            "conteúdo completo no e-mail e na planilha" if entregue
+            else "ensaio: nada entregue, resumo numérico no log de monitoramento"
         )
+        print(f"[plano da semana de {dias[0]} gerado: {treinos} treino(s), {7 - treinos} descanso(s) -- {destino}]")
         return
     print(_texto_plano(plano, dias))
 
@@ -706,110 +731,166 @@ def enviar_email_resumo(plano: PlanoSemanal, dias: list[date]) -> None:
     enviar_email(assunto, _texto_plano(plano, dias))
 
 
+def _monitorar_plano(e: Etapa, plano: PlanoSemanal, dias: list[date]) -> None:
+    """Saída da análise no log de monitoramento: resumo do plano aprovado +
+    uma amostra por dia. Só números e categorias, nada do texto do plano."""
+    treinos = [d for d in plano.dias if not d.descanso]
+    e.saida.update(
+        dias_treino=len(treinos),
+        dias_descanso=len(plano.dias) - len(treinos),
+        km_planejados=round(sum(d.distancia_km or 0 for d in treinos), 2),
+        minutos_planejados=round(sum(d.duracao_min or 0 for d in treinos), 1),
+        estimativas_futuras=len(plano.estimativas_futuras or []),
+        logica_geral_chars=len(plano.logica_geral),
+    )
+    for nome_dia, d, data in zip(DIAS_SEMANA_PT, plano.dias, dias):
+        amostra(
+            "dia_planejado", data.isoformat(),
+            dia_semana=nome_dia,
+            descanso=d.descanso,
+            tipo_treino=d.tipo_treino or "Descanso",
+            distancia_km=d.distancia_km,
+            duracao_min=d.duracao_min,
+        )
+
+
 if __name__ == "__main__":
-    # Idempotência ponta a ponta: semana que já tem plano na planilha não é
-    # regerada. Reprocessar (retry manual, cron + disparo manual) chamaria o
-    # Gemini de novo e o LLM devolve OUTRO plano -- a planilha (idempotente)
-    # ficaria com o primeiro enquanto e-mail e relógio receberiam o segundo.
-    # Checa antes de tocar no banco ou no Gemini, pra não gastar nada.
-    # FORCAR_REGERAR=true (input `forcar` do disparo manual) gera um plano
-    # novo mesmo assim e substitui o antigo -- mas só depois de o novo ser
-    # aprovado pela revisão, então uma falha na geração não apaga nada.
-    spreadsheet = conectar_planilha()
-    dias = _semana_alvo()
-    forcar = os.environ.get("FORCAR_REGERAR") == "true"
-    if plano_ja_escrito(spreadsheet, dias):
-        if not forcar:
-            print(
-                f"[plano da semana de {dias[0]} já existe em '{ABA_PLANO}': nada a gerar, "
-                "nenhum e-mail nem treino novo enviado]"
+    with etapa("analisar_com_ia") as e:
+        # Idempotência ponta a ponta: semana que já tem plano na planilha não é
+        # regerada. Reprocessar (retry manual, cron + disparo manual) chamaria o
+        # Gemini de novo e o LLM devolve OUTRO plano -- a planilha (idempotente)
+        # ficaria com o primeiro enquanto e-mail e relógio receberiam o segundo.
+        # Checa antes de tocar no banco ou no Gemini, pra não gastar nada.
+        # FORCAR_REGERAR=true (input `forcar` do disparo manual) gera um plano
+        # novo mesmo assim e substitui o antigo -- mas só depois de o novo ser
+        # aprovado pela revisão, então uma falha na geração não apaga nada.
+        spreadsheet = conectar_planilha()
+        dias = _semana_alvo()
+        forcar = os.environ.get("FORCAR_REGERAR") == "true"
+        # Ensaio (ENTREGAR_PLANO=false, input `entregar` do disparo manual):
+        # contexto real, Gemini de verdade e revisão -- tudo registrado no
+        # log de monitoramento --, mas sem planilha nem e-mail. Gera carga
+        # de monitoramento sem mexer no plano da semana; por isso também não
+        # para em "plano já escrito".
+        ensaio = os.environ.get("ENTREGAR_PLANO") == "false"
+        e.entrada.update(semana_inicio=dias[0].isoformat(), forcar=forcar, ensaio=ensaio)
+        if not ensaio and plano_ja_escrito(spreadsheet, dias):
+            if not forcar:
+                e.outcome = "pulado_idempotente"
+                print(
+                    f"[plano da semana de {dias[0]} já existe em '{ABA_PLANO}': nada a gerar, "
+                    "nenhum e-mail nem treino novo enviado]"
+                )
+                raise SystemExit(0)
+            e.entrada["regerando"] = True
+            print(f"[regeração forçada: o plano de {dias[0]} em '{ABA_PLANO}' será substituído se o novo for aprovado]")
+
+        con = conectar()
+
+        # data em BRT, não CURRENT_DATE do Postgres (servidor roda em UTC) --
+        # mesmo cuidado de _semana_alvo, ver hoje_brt().
+        corte_janela = hoje_brt() - timedelta(days=JANELA_SEMANAS * 7)
+        colunas_ativ, linhas_ativ = _consultar(
+            con,
+            "SELECT * FROM vw_sessoes_ia WHERE data >= %s ORDER BY data",
+            (corte_janela,),
+        )
+        colunas_resumo, linhas_resumo_desc = _consultar(
+            con, "SELECT * FROM vw_resumo_semanal ORDER BY semana_inicio DESC LIMIT %s", (JANELA_SEMANAS,)
+        )
+        linhas_resumo = list(reversed(linhas_resumo_desc))  # ordem cronológica pro prompt
+
+        acwr_atual = _acwr_semana_atual(colunas_resumo, linhas_resumo)
+        dor_recente = _dor_mais_recente(colunas_ativ, linhas_ativ)
+        instrucoes = [
+            i for i in (_instrucao_guardrail_acwr(acwr_atual), _instrucao_guardrail_dor(dor_recente)) if i
+        ]
+        # Entrada da análise no log: os sinais de guardrail já calculados (o
+        # que restringe o vocabulário do LLM, docs/ENTENDIMENTO_DO_NEGOCIO.md
+        # 3.1) -- só flags e o ACWR, nunca o nível de dor.
+        e.entrada.update(
+            acwr=float(acwr_atual) if acwr_atual is not None else None,
+            guardrail_acwr=bool(_instrucao_guardrail_acwr(acwr_atual)),
+            restricao_dor=bool(_instrucao_guardrail_dor(dor_recente)),
+            instrucoes_guardrail=len(instrucoes),
+            atividades_na_janela=len(linhas_ativ),
+            semanas_no_resumo=len(linhas_resumo),
+        )
+        if instrucoes:
+            if EM_CI:
+                print(f"[{len(instrucoes)} guardrail(s) ativado(s)]\n")
+            else:
+                print(f"[guardrail(s) ativado(s) -- ACWR atual: {acwr_atual}, dor recente: {dor_recente}]\n")
+
+        observacoes = _observacoes_recentes(spreadsheet)
+
+        prompt = _construir_prompt(
+            _formatar_tabela(colunas_ativ, linhas_ativ),
+            _formatar_tabela(colunas_resumo, linhas_resumo),
+            _faixas_por_tipo(colunas_ativ, linhas_ativ),
+            observacoes,
+            instrucoes,
+            dias,
+        )
+        e.entrada["prompt_chars"] = len(prompt)
+        e.entrada["observacoes_chars"] = len(observacoes or "")
+        plano = None
+        for tentativa in range(1, MAX_TENTATIVAS_REVISAO + 1):
+            contar("tentativas")
+            candidato = _plano_semanal(gerar_analise(prompt))
+            revisao = revisar_coerencia(prompt, _texto_plano(candidato, dias))
+            if revisao.coerente:
+                plano = candidato
+                if tentativa > 1:
+                    print(f"[plano aprovado pela revisão de coerência na tentativa {tentativa}/{MAX_TENTATIVAS_REVISAO}]")
+                break
+            contar("revisoes_reprovadas")
+            if EM_CI:
+                print(f"[revisão reprovou a tentativa {tentativa}/{MAX_TENTATIVAS_REVISAO}: {len(revisao.problemas)} problema(s)]")
+                continue
+            print(f"[revisão reprovou a tentativa {tentativa}/{MAX_TENTATIVAS_REVISAO}: {revisao.motivo}]")
+            for problema in revisao.problemas:
+                print(f"  - {problema}")
+
+        if plano is None:
+            raise RuntimeError(
+                f"Plano reprovado pela revisão de coerência em {MAX_TENTATIVAS_REVISAO} "
+                "tentativas seguidas -- abortando sem escrever na planilha nem enviar e-mail."
             )
+
+        _monitorar_plano(e, plano, dias)
+        if ensaio:
+            e.outcome = "ensaio"
+            _imprimir_plano(plano, dias, entregue=False)
+            print("[ensaio: plano não entregue -- planilha e e-mail intactos]")
+            con.close()
             raise SystemExit(0)
-        print(f"[regeração forçada: o plano de {dias[0]} em '{ABA_PLANO}' será substituído se o novo for aprovado]")
 
-    con = conectar()
+        _imprimir_plano(plano, dias)
 
-    # data em BRT, não CURRENT_DATE do Postgres (servidor roda em UTC) --
-    # mesmo cuidado de _semana_alvo, ver hoje_brt().
-    corte_janela = hoje_brt() - timedelta(days=JANELA_SEMANAS * 7)
-    colunas_ativ, linhas_ativ = _consultar(
-        con,
-        "SELECT * FROM vw_sessoes_ia WHERE data >= %s ORDER BY data",
-        (corte_janela,),
-    )
-    colunas_resumo, linhas_resumo_desc = _consultar(
-        con, "SELECT * FROM vw_resumo_semanal ORDER BY semana_inicio DESC LIMIT %s", (JANELA_SEMANAS,)
-    )
-    linhas_resumo = list(reversed(linhas_resumo_desc))  # ordem cronológica pro prompt
+        if forcar:
+            apagadas_plano, apagadas_ativ = apagar_plano_da_semana(spreadsheet, dias)
+            print(
+                f"[plano antigo apagado: {apagadas_plano} linha(s) em '{ABA_PLANO}', "
+                f"{apagadas_ativ} linha(s) {STATUS_PLANEJADO} em '{ABA_ATIVIDADES}']"
+            )
 
-    acwr_atual = _acwr_semana_atual(colunas_resumo, linhas_resumo)
-    dor_recente = _dor_mais_recente(colunas_ativ, linhas_ativ)
-    instrucoes = [
-        i for i in (_instrucao_guardrail_acwr(acwr_atual), _instrucao_guardrail_dor(dor_recente)) if i
-    ]
-    if instrucoes:
-        if EM_CI:
-            print(f"[{len(instrucoes)} guardrail(s) ativado(s)]\n")
+        n = escrever_plano(spreadsheet, plano, dias)
+        if n:
+            print(f"\n[{n} linha(s) escrita(s) na aba '{ABA_PLANO}']")
         else:
-            print(f"[guardrail(s) ativado(s) -- ACWR atual: {acwr_atual}, dor recente: {dor_recente}]\n")
+            print(f"\n[plano da semana de {dias[0]} já estava na aba '{ABA_PLANO}', não duplicado]")
 
-    observacoes = _observacoes_recentes(spreadsheet)
+        n_plan = escrever_dias_planejados(spreadsheet, plano, dias, forcar=forcar)
+        if n_plan:
+            print(f"[{n_plan} dia(s) planejado(s) escrito(s) na aba '{ABA_ATIVIDADES}', status {STATUS_PLANEJADO}]")
+        else:
+            print(f"[dias planejados da semana de {dias[0]} já estavam na aba '{ABA_ATIVIDADES}', não duplicados]")
 
-    prompt = _construir_prompt(
-        _formatar_tabela(colunas_ativ, linhas_ativ),
-        _formatar_tabela(colunas_resumo, linhas_resumo),
-        _faixas_por_tipo(colunas_ativ, linhas_ativ),
-        observacoes,
-        instrucoes,
-        dias,
-    )
-    plano = None
-    for tentativa in range(1, MAX_TENTATIVAS_REVISAO + 1):
-        candidato = _plano_semanal(gerar_analise(prompt))
-        revisao = revisar_coerencia(prompt, _texto_plano(candidato, dias))
-        if revisao.coerente:
-            plano = candidato
-            if tentativa > 1:
-                print(f"[plano aprovado pela revisão de coerência na tentativa {tentativa}/{MAX_TENTATIVAS_REVISAO}]")
-            break
-        if EM_CI:
-            print(f"[revisão reprovou a tentativa {tentativa}/{MAX_TENTATIVAS_REVISAO}: {len(revisao.problemas)} problema(s)]")
-            continue
-        print(f"[revisão reprovou a tentativa {tentativa}/{MAX_TENTATIVAS_REVISAO}: {revisao.motivo}]")
-        for problema in revisao.problemas:
-            print(f"  - {problema}")
+        enviar_email_resumo(plano, dias)
+        print("[e-mail com o plano da semana enviado]")
 
-    if plano is None:
-        raise RuntimeError(
-            f"Plano reprovado pela revisão de coerência em {MAX_TENTATIVAS_REVISAO} "
-            "tentativas seguidas -- abortando sem escrever na planilha nem enviar e-mail."
-        )
+        # Fase 12 (enviar os treinos ao relógio) desligada na branch SR1: aqui a
+        # Garmin é simulada e não existe relógio pra receber o treino.
 
-    _imprimir_plano(plano, dias)
-
-    if forcar:
-        apagadas_plano, apagadas_ativ = apagar_plano_da_semana(spreadsheet, dias)
-        print(
-            f"[plano antigo apagado: {apagadas_plano} linha(s) em '{ABA_PLANO}', "
-            f"{apagadas_ativ} linha(s) {STATUS_PLANEJADO} em '{ABA_ATIVIDADES}']"
-        )
-
-    n = escrever_plano(spreadsheet, plano, dias)
-    if n:
-        print(f"\n[{n} linha(s) escrita(s) na aba '{ABA_PLANO}']")
-    else:
-        print(f"\n[plano da semana de {dias[0]} já estava na aba '{ABA_PLANO}', não duplicado]")
-
-    n_plan = escrever_dias_planejados(spreadsheet, plano, dias, forcar=forcar)
-    if n_plan:
-        print(f"[{n_plan} dia(s) planejado(s) escrito(s) na aba '{ABA_ATIVIDADES}', status {STATUS_PLANEJADO}]")
-    else:
-        print(f"[dias planejados da semana de {dias[0]} já estavam na aba '{ABA_ATIVIDADES}', não duplicados]")
-
-    enviar_email_resumo(plano, dias)
-    print("[e-mail com o plano da semana enviado]")
-
-    # Fase 12 (enviar os treinos ao relógio) desligada na branch SR1: aqui a
-    # Garmin é simulada e não existe relógio pra receber o treino.
-
-    con.close()
+        con.close()

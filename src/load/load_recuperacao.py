@@ -41,28 +41,36 @@ def carregar(con: psycopg.Connection, dias: list[dict]) -> int:
 
 
 if __name__ == "__main__":
-    # roda dentro do container com:
-    #   docker compose run --rm garmin python -m src.load.load_recuperacao
-    from datetime import timedelta
+    from src.monitoramento import amostras_sono, etapa
 
-    from src.extract.garmin import conectar as conectar_garmin
-    from src.extract.garmin import recuperacao_diaria
-    from src.extract.garmin_simulado import HISTORICO_DIAS
-    from src.tempo import hoje_brt
+    with etapa("load_recuperacao") as e:
+        # roda dentro do container com:
+        #   docker compose run --rm garmin python -m src.load.load_recuperacao
+        from datetime import timedelta
 
-    api = conectar_garmin()
-    dias = []
-    # SR1: janela inteira da Garmin simulada, mesmo motivo de load_atividades.
-    for i in range(HISTORICO_DIAS):
-        # hoje_brt(), não date.today() -- esse job roda às 21h BRT = 00h
-        # UTC (virada de dia), então date.today() no runner (UTC) já
-        # devolveria amanhã em BRT em qualquer atraso de agendamento.
-        dia = hoje_brt() - timedelta(days=i)
-        r = recuperacao_diaria(api, dia)
-        if r:
-            dias.append(r)
+        from src.extract.garmin import conectar as conectar_garmin
+        from src.extract.garmin import recuperacao_diaria
+        from src.extract.garmin_simulado import HISTORICO_DIAS
+        from src.tempo import hoje_brt
 
-    con = conectar()
-    n = carregar(con, dias)
-    print(f"{n} dia(s) de recuperação carregado(s)/atualizado(s) em stg_recuperacao_diaria.")
-    con.close()
+        api = conectar_garmin()
+        dias = []
+        # SR1: janela inteira da Garmin simulada, mesmo motivo de load_atividades.
+        for i in range(HISTORICO_DIAS):
+            # hoje_brt(), não date.today() -- esse job roda às 21h BRT = 00h
+            # UTC (virada de dia), então date.today() no runner (UTC) já
+            # devolveria amanhã em BRT em qualquer atraso de agendamento.
+            dia = hoje_brt() - timedelta(days=i)
+            r = recuperacao_diaria(api, dia)
+            if r:
+                dias.append(r)
+
+        e.entrada["dias_pedidos"] = HISTORICO_DIAS
+        e.entrada["dias_com_dado"] = len(dias)
+
+        con = conectar()
+        n = carregar(con, dias)
+        e.saida["dias_gravados"] = n
+        e.saida["noites_sem_sono"] = amostras_sono(dias)
+        print(f"{n} dia(s) de recuperação carregado(s)/atualizado(s) em stg_recuperacao_diaria.")
+        con.close()

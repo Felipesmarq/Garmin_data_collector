@@ -411,27 +411,38 @@ def escrever_resumo_semanal(con: psycopg.Connection, spreadsheet) -> int:
 
 
 if __name__ == "__main__":
-    con = conectar()
-    spreadsheet = conectar_planilha()
+    from src.monitoramento import amostras_semana, etapa
 
-    n_ativ = escrever_atividades(con, spreadsheet)
-    print(f"{n_ativ} atividade(s) escrita(s) na aba '{ABA_ATIVIDADES}'.")
+    with etapa("planilha_desempenho") as e:
+        con = conectar()
+        spreadsheet = conectar_planilha()
 
-    resolvidos = resolver_dias_planejados(con, spreadsheet)
-    if resolvidos:
-        detalhe = ", ".join(f"{d.strftime('%d/%m')}={s}" for d, s in resolvidos)
-        print(f"{len(resolvidos)} dia(s) planejado(s) resolvido(s): {detalhe}")
+        n_ativ = escrever_atividades(con, spreadsheet)
+        e.saida["atividades_escritas"] = n_ativ
+        print(f"{n_ativ} atividade(s) escrita(s) na aba '{ABA_ATIVIDADES}'.")
 
-    ontem = hoje_brt() - timedelta(days=1)
-    pendencias_ontem = [
-        (d, s) for d, s in resolvidos
-        if d == ontem and s in (STATUS_NAO_REALIZADO, STATUS_REALIZADO_FORA_DA_MARGEM)
-    ]
-    if pendencias_ontem:
-        enviar_email("Treino de ontem ficou pendente", _texto_lembrete(pendencias_ontem))
-        print(f"[e-mail de lembrete enviado -- {len(pendencias_ontem)} pendência(s) de ontem]")
+        resolvidos = resolver_dias_planejados(con, spreadsheet)
+        e.saida["dias_resolvidos"] = len(resolvidos)
+        for _, status in resolvidos:
+            e.contar(f"status_{status.lower()}")
+        if resolvidos:
+            detalhe = ", ".join(f"{d.strftime('%d/%m')}={s}" for d, s in resolvidos)
+            print(f"{len(resolvidos)} dia(s) planejado(s) resolvido(s): {detalhe}")
 
-    n_sem = escrever_resumo_semanal(con, spreadsheet)
-    print(f"{n_sem} semana(s) escrita(s) na aba '{ABA_RESUMO_SEMANAL}'.")
+        ontem = hoje_brt() - timedelta(days=1)
+        pendencias_ontem = [
+            (d, s) for d, s in resolvidos
+            if d == ontem and s in (STATUS_NAO_REALIZADO, STATUS_REALIZADO_FORA_DA_MARGEM)
+        ]
+        if pendencias_ontem:
+            enviar_email("Treino de ontem ficou pendente", _texto_lembrete(pendencias_ontem))
+            e.saida["lembrete_enviado"] = True
+            print(f"[e-mail de lembrete enviado -- {len(pendencias_ontem)} pendência(s) de ontem]")
 
-    con.close()
+        n_sem = escrever_resumo_semanal(con, spreadsheet)
+        e.saida["semanas_escritas"] = n_sem
+        e.saida["pendencias_ontem"] = len(pendencias_ontem)
+        amostras_semana(con)
+        print(f"{n_sem} semana(s) escrita(s) na aba '{ABA_RESUMO_SEMANAL}'.")
+
+        con.close()

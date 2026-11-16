@@ -19,3 +19,8 @@ venv/
 # Config local de skills do Claude Code -- não é parte do projeto
 .claude/
 skills-lock.json
+
+# Log de monitoramento (src/monitoramento.py) e o resumo gerado dele -- vão
+# pro artifact do GitHub Actions, não pro repositório
+logs/
+monitoring_out/

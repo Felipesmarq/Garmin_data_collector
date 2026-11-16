@@ -86,16 +86,24 @@ def carregar(con: psycopg.Connection, atividades: list[dict]) -> int:
 
 
 if __name__ == "__main__":
-    from src.extract.garmin import atividades_novas
-    from src.extract.garmin import conectar as conectar_garmin
-    from src.extract.garmin_simulado import HISTORICO_DIAS
+    from src.monitoramento import amostras_sessoes, etapa
 
-    api = conectar_garmin()
-    # SR1: a janela inteira da Garmin simulada a cada sync (local, sem custo),
-    # pra um banco vazio já começar com histórico -- ver garmin_simulado.py.
-    novas = atividades_novas(api, dias=HISTORICO_DIAS, limite=1000)
+    with etapa("load_atividades") as e:
+        from src.extract.garmin import atividades_novas
+        from src.extract.garmin import conectar as conectar_garmin
+        from src.extract.garmin_simulado import HISTORICO_DIAS
 
-    con = conectar()
-    n = carregar(con, novas)
-    print(f"{n} atividade(s) carregada(s)/atualizada(s) em stg_atividades.")
-    con.close()
+        api = conectar_garmin()
+        # SR1: a janela inteira da Garmin simulada a cada sync (local, sem custo),
+        # pra um banco vazio já começar com histórico -- ver garmin_simulado.py.
+        novas = atividades_novas(api, dias=HISTORICO_DIAS, limite=1000)
+        e.entrada["atividades_api"] = len(novas)
+        e.entrada["janela_dias"] = HISTORICO_DIAS
+
+        con = conectar()
+        n = carregar(con, novas)
+        e.saida["atividades_gravadas"] = n
+        e.saida["splits_gravados"] = sum(len(a.get("splits") or []) for a in novas)
+        amostras_sessoes(con, [a["activity_id"] for a in novas])
+        print(f"{n} atividade(s) carregada(s)/atualizada(s) em stg_atividades.")
+        con.close()

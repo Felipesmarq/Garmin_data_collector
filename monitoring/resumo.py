@@ -60,6 +60,30 @@ def _ultimas_amostras(linhas: list[dict]) -> dict[str, dict[str, dict]]:
     return grupos
 
 
+def _totais(etapas: list[dict], chamadas: list[dict]) -> dict:
+    """Tempo e tokens da execução inteira. `duracao_total_ms` vai do início
+    da primeira etapa ao fim da última (inclui instalação e espera entre os
+    jobs do mesmo run); `soma_etapas_ms` é só o tempo dentro das etapas."""
+    from datetime import datetime
+
+    inicios = [datetime.fromisoformat(l["inicio"]) for l in etapas if l.get("inicio")]
+    fins = [datetime.fromisoformat(l["ts"]) for l in etapas]
+    ok = [c for c in chamadas if c.get("outcome") == "ok"]
+    return {
+        "duracao_total_ms": round((max(fins) - min(inicios)).total_seconds() * 1000) if inicios and fins else None,
+        "soma_etapas_ms": sum(l["latency_ms"] for l in etapas),
+        "etapas_com_erro": sum(1 for l in etapas if l["outcome"] == "erro"),
+        "llm_chamadas": len(chamadas),
+        "llm_chamadas_ok": len(ok),
+        **{f"tokens_{t}": sum(c.get(f"tokens_{t}") or 0 for c in ok) for t in ("entrada", "saida", "raciocinio", "total")},
+    }
+
+
+def _plano(l: dict) -> dict:
+    """O que a última análise (da execução, ou do log) produziu."""
+    return {"ts": l["ts"], "outcome": l["outcome"], "latency_ms": l["latency_ms"], **l["saida"]}
+
+
 def resumir(linhas: list[dict], execucao: str | None) -> dict:
     etapas = [l for l in linhas if l.get("evento") == "etapa"]
     chamadas = [l for l in linhas if l.get("evento") == "llm_chamada"]
@@ -86,11 +110,17 @@ def resumir(linhas: list[dict], execucao: str | None) -> dict:
         vals = [v[chave] for _, v in sono if v.get(chave) is not None]
         return round(statistics.mean(vals), 2) if vals else None
 
+    etapas_alvo = [l for l in etapas if l["execucao_id"] == alvo]
+    chamadas_alvo = [c for c in chamadas if c["execucao_id"] == alvo]
+    analises = [l for l in etapas_alvo if l["etapa"] == "analisar_com_ia"] or [
+        l for l in etapas if l["etapa"] == "analisar_com_ia"
+    ]
     return {
         "execucao_id": alvo,
         "execucao": {
-            "etapas": [l for l in etapas if l["execucao_id"] == alvo],
-            "llm_chamadas": [c for c in chamadas if c["execucao_id"] == alvo],
+            "etapas": etapas_alvo,
+            "llm_chamadas": chamadas_alvo,
+            "totais": _totais(etapas_alvo, chamadas_alvo),
         },
         "historico": {
             "linhas_no_log": len(linhas),
@@ -111,6 +141,8 @@ def resumir(linhas: list[dict], execucao: str | None) -> dict:
             "tokens": [{"modelo": m, "tipo": t, "n": n} for (m, t), n in sorted(tokens.items())],
             "amostras_por_grupo": {g: len(v) for g, v in amostras.items()},
         },
+        "amostras_no_log": bool(amostras),
+        "plano": _plano(analises[-1]) if analises else None,
         "treino": {
             "semana_atual": dict(zip(("semana_inicio", "valores"), semanas[-1])) if semanas else None,
             "semana_anterior": dict(zip(("semana_inicio", "valores"), semanas[-2])) if len(semanas) > 1 else None,
@@ -131,6 +163,10 @@ def resumir(linhas: list[dict], execucao: str | None) -> dict:
     }
 
 
+def _seg(ms):
+    return "-" if ms is None else f"{ms / 1000:.1f} s"
+
+
 def _pace(seg):
     return f"{int(seg // 60)}:{int(seg % 60):02d}/km" if seg else "-"
 
@@ -139,7 +175,14 @@ def markdown(r: dict) -> str:
     h = r["historico"]
     out = [f"# Resumo do monitoramento -- execução `{r['execucao_id']}`", ""]
 
-    out += ["## Esta execução", "", "| etapa | início | fim | latência (ms) | outcome | entrada | saída |", "|---|---|---|---:|---|---|---|"]
+    tot = r["execucao"]["totais"]
+    out += [
+        "## Esta execução", "",
+        f"- **Tempo total:** {_seg(tot['duracao_total_ms'])} do início da primeira etapa ao fim da última "
+        f"({_seg(tot['soma_etapas_ms'])} dentro das etapas); {tot['etapas_com_erro']} etapa(s) com erro",
+        f"- **Tokens consumidos:** {tot['tokens_total']} (entrada {tot['tokens_entrada']}, saída {tot['tokens_saida']}, "
+        f"raciocínio {tot['tokens_raciocinio']}) em {tot['llm_chamadas_ok']} de {tot['llm_chamadas']} chamada(s) ao LLM",
+        "", "| etapa | início | fim | latência (ms) | outcome | entrada | saída |", "|---|---|---|---:|---|---|---|"]
     for l in r["execucao"]["etapas"]:
         out.append(
             f"| {l['etapa']} | {l.get('inicio', '-')} | {l['ts']} | {l['latency_ms']} | {l['outcome']}{' (' + l['erro'] + ')' if l.get('erro') else ''} "
@@ -153,8 +196,23 @@ def markdown(r: dict) -> str:
                 f"| {c.get('tokens_entrada', '-')} | {c.get('tokens_saida', '-')} | {c.get('tokens_raciocinio', '-')} | {c.get('tokens_total', '-')} |"
             )
 
+    p = r["plano"]
+    if p:
+        out += [
+            "", "## Plano gerado (última análise)", "",
+            f"- {p['ts']}: outcome `{p['outcome']}`, {_seg(p['latency_ms'])}, modelo `{p.get('model_id', '-')}`, "
+            f"{p.get('tentativas', '-')} tentativa(s), {p.get('revisoes_reprovadas', 0)} revisão(ões) reprovada(s)",
+            f"- {p.get('dias_treino', '-')} dia(s) de treino, {p.get('dias_descanso', '-')} de descanso, "
+            f"{p.get('dias_forca', 0)} com força; {p.get('minutos_planejados', '-')} min e {p.get('km_planejados', '-')} km planejados",
+        ]
+
     t = r["treino"]
     out += ["", "## Treino (resumo, sem dado de dor)", ""]
+    if not r["amostras_no_log"]:
+        out.append(
+            "- Amostras de domínio desligadas neste log (MONITORAMENTO_AMOSTRAS=0: dado real num repositório "
+            "público). Com dado simulado (branch SR1), aqui aparecem semana (km, pace, ACWR) e sono."
+        )
     for rotulo, chave in (("Semana atual", "semana_atual"), ("Semana anterior", "semana_anterior")):
         s = t[chave]
         if s:
@@ -226,6 +284,12 @@ def prometheus(r: dict) -> str:
     metrica("garmin_pipeline_llm_tokens_total", "counter", "Tokens consumidos no LLM (usage_metadata) por modelo e tipo.")
     for (modelo, tipo), n in sorted(r["_tokens"].items()):
         out.append(f"garmin_pipeline_llm_tokens_total{_rotulos(modelo=modelo, tipo=tipo)} {n}")
+
+    tot = r["execucao"]["totais"]
+    metrica("garmin_pipeline_execucao", "gauge", "Totais da execucao mais recente (tempo em ms, tokens).")
+    for chave, valor in tot.items():
+        if valor is not None:
+            out.append(f"garmin_pipeline_execucao{_rotulos(execucao_id=r['execucao_id'], variavel=chave)} {valor}")
 
     metrica("garmin_pipeline_amostras", "gauge", "Amostras de dominio no log, deduplicadas por chave.")
     for grupo, v in sorted(r["_amostras"].items()):

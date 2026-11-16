@@ -52,6 +52,11 @@ já rodam nela; no repositório original, acrescente `--ref SR1`.
 
 Retenção: 30 dias.
 
+O `resumo_execucao.md` abre com o **tempo total** da execução e os **tokens
+consumidos**, seguidos das etapas, das chamadas ao LLM, do **plano gerado**
+(dias de treino, minutos, modelo que gerou, tentativas) e do resumo de
+treino (semana com km, pace médio e ACWR, e sono).
+
 ### O que abrir
 
 ```

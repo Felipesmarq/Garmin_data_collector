@@ -37,7 +37,7 @@ from pydantic import BaseModel
 
 from src.db import conectar
 from src.email_util import enviar_email
-from src.monitoramento import Etapa, amostra, contar, etapa, registrar
+from src.monitoramento import Etapa, amostra, contar, etapa, etapa_atual, registrar
 from src.tempo import hoje_brt
 from src.load.planilha_desempenho import (
     ABA_ATIVIDADES,
@@ -466,6 +466,9 @@ def _registrar_chamada(chamada: dict, inicio: float, outcome: str) -> None:
     contar("llm_chamadas")
     if outcome == "ok":
         contar("tokens_total", chamada.get("tokens_total") or 0)
+        # model_id na linha da etapa: o modelo que de fato gerou o plano
+        if (e := etapa_atual()) is not None:
+            e.saida["model_id"] = chamada["modelo"]
 
 
 def gerar_analise(prompt: str) -> str:

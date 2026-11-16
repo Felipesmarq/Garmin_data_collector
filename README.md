@@ -59,7 +59,10 @@ O que muda em relação à versão principal:
    gh secret set GOOGLE_SHEETS_CREDENTIALS_JSON < .google_sheets_credentials.json
    ```
 
-   `GEMINI_MODEL` e `EMAIL_DESTINATARIO` são opcionais.
+   `EMAIL_DESTINATARIO` é opcional. `GEMINI_MODEL` também (sem ele, usa
+   `gemini-3.8-flash`); se quiser outro modelo, ele vai como **variável**, não
+   Secret, porque o nome do modelo aparece no log de monitoramento:
+   `gh variable set GEMINI_MODEL --body "gemini-3.8-flash"`.
 5. **Ative os workflows** na aba **Actions** do fork (em fork eles vêm
    desativados).
 6. **Rode o sync** na aba Actions (**Run workflow**, escolhendo a branch
@@ -86,6 +89,19 @@ O que muda em relação à versão principal:
    `REALIZADO_FORA_DA_MARGEM` ou `NÃO_REALIZADO`. Se o dia anterior ficou
    pendente, chega um e-mail de lembrete. Pra ver isso sem esperar, rode o
    sync de novo à mão depois que um dia planejado tiver passado.
+9. **Baixe o log de monitoramento.** Cada execução publica um artifact
+   (`monitoramento-sync-*`, `monitoramento-analise-*`) com o log append-only
+   (`logs/pipeline.jsonl`), o resumo da execução (tempo, tokens, plano, pace
+   da semana, sono) e um `metrics.prom`:
+
+   ```bash
+   gh run list --limit 5
+   gh run download <run-id>
+   ```
+
+   Pra gerar carga sem mexer no plano: `gh workflow run "Análise semanal"
+   --ref SR1 -f entregar=false` (ensaio). Tudo sobre o log em
+   [monitoring/README.md](monitoring/README.md).
 
 Pra testar a parte manual, preencha na aba **Dor** uma nota de 0 a 5 em
 alguma corrida e rode o sync: com dor 2 ou mais, o próximo plano gerado
@@ -195,7 +211,7 @@ com as duas primeiras linhas e ir completando.
 | `GOOGLE_SHEETS_CREDENTIALS_PATH` | Caminho do JSON da conta de serviço | Já vem preenchido no `.env.example` (`.google_sheets_credentials.json`). O arquivo você gera no passo a passo da [Fase 6](#fase-6--planilha-google-sheets-dor--dashboard-de-desempenho) | Fase 6 |
 | `GOOGLE_SHEET_ID` | Qual planilha usar | Crie uma planilha no Google Sheets e copie da URL o trecho entre `/d/` e `/edit`. Compartilhe a planilha, como **Editor**, com o `client_email` do JSON da conta de serviço | Fase 6 |
 | `GEMINI_API_KEY` | Gerar o plano semanal | Em [aistudio.google.com/apikey](https://aistudio.google.com/apikey), com sua conta Google | Fase 7 |
-| `GEMINI_MODEL` | Modelo do Gemini | Opcional. Sem ele, usa `gemini-3.5-flash` | Fase 7 (opcional) |
+| `GEMINI_MODEL` | Modelo do Gemini | Opcional. Sem ele, usa `gemini-3.8-flash`. No Actions, variável do repositório (não Secret) | Fase 7 (opcional) |
 | `EMAIL_REMETENTE` | Conta que envia o plano e os lembretes | Um endereço **Gmail** seu (o envio é fixo em `smtp.gmail.com`) | Fase 7 |
 | `EMAIL_SENHA_APP` | Senha de app do Gmail | Em [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords). Exige a verificação em 2 etapas ativada na conta. Não é a senha normal do Gmail | Fase 7 |
 | `EMAIL_DESTINATARIO` | Quem recebe os e-mails | Opcional. Sem ele, vai pro próprio `EMAIL_REMETENTE` | Fase 7 (opcional) |
@@ -378,7 +394,6 @@ gh secret set GARMIN_PASSWORD --body "$(grep '^GARMIN_PASSWORD=' .env | cut -d= 
 gh secret set DATABASE_URL --body "$(grep '^DATABASE_URL=' .env | cut -d= -f2-)"
 gh secret set GOOGLE_SHEET_ID --body "$(grep '^GOOGLE_SHEET_ID=' .env | cut -d= -f2-)"
 gh secret set GEMINI_API_KEY --body "$(grep '^GEMINI_API_KEY=' .env | cut -d= -f2-)"
-gh secret set GEMINI_MODEL --body "$(grep '^GEMINI_MODEL=' .env | cut -d= -f2- | tr -d '\"')"
 gh secret set EMAIL_REMETENTE --body "$(grep '^EMAIL_REMETENTE=' .env | cut -d= -f2-)"
 gh secret set EMAIL_SENHA_APP --body "$(grep '^EMAIL_SENHA_APP=' .env | cut -d= -f2-)"
 gh secret set GARMIN_TOKEN < .garmin_tokens/garmin_tokens.json
@@ -414,7 +429,7 @@ enquanto -- não influencia a geração do plano seguinte.
 
 ### No produto: o modelo que gera o plano
 
-- **Modelo:** `gemini-3.5-flash`, do Google, chamado pela API do Gemini
+- **Modelo:** `gemini-3.8-flash`, do Google, chamado pela API do Gemini
   (SDK `google-genai` 2.23.0, versão travada no `uv.lock`). Nenhum modelo
   foi treinado neste projeto: é um modelo de terceiro, pré-treinado, usado
   como está. Outro modelo do Gemini pode ser escolhido pela variável

@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from src.analyze.modelos import PlanoSemanal, RevisaoCoerencia
 from src.analyze.prompt import construir_prompt_revisao
 from src.config import carregar_env
-from src.monitoramento import contar, registrar
+from src.monitoramento import contar, etapa_atual, registrar
 
 MODELO_PADRAO = "gemini-3.8-flash"
 
@@ -126,6 +126,10 @@ def _registrar_chamada(chamada: dict, inicio: float, outcome: str) -> None:
     contar("llm_chamadas")
     if outcome == "ok":
         contar("tokens_total", chamada.get("tokens_total") or 0)
+        # model_id na linha da etapa: o modelo da última chamada que deu
+        # certo -- com sobrecarga, o de reserva que de fato gerou o plano.
+        if (e := etapa_atual()) is not None:
+            e.saida["model_id"] = chamada["modelo"]
 
 
 def gerar_analise(prompt: str) -> str:

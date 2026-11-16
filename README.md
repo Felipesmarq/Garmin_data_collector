@@ -371,6 +371,21 @@ status, um e-mail curto de lembrete é enviado (mesmo mecanismo do e-mail
 semanal, `EMAIL_REMETENTE`/`EMAIL_SENHA_APP`). Puramente informativo por
 enquanto -- não influencia a geração do plano seguinte.
 
+### Monitoramento (log de execução e artifact)
+
+Cada etapa do sync e da análise grava uma linha num log append-only
+(`logs/pipeline.jsonl`, JSON Lines, `src/monitoramento.py`): início e fim,
+latência, desfecho, contagens de entrada e saída, sinais de guardrail e,
+por chamada ao Gemini, modelo e tokens. Os dois workflows carregam o log de
+uma execução pra outra (cache) e o publicam como artifact
+(`monitoramento-sync-*` / `monitoramento-analise-*`), com um resumo da
+execução e um `metrics.prom`. A Análise semanal tem um modo ensaio
+(`-f entregar=false`): gera o plano com o Gemini e registra tudo, sem
+planilha, e-mail nem relógio.
+
+Como disparar, o que abrir no artifact, o formato do log e o porquê de cada
+variável: [monitoring/README.md](monitoring/README.md).
+
 ## Estrutura do projeto
 
 ```
@@ -424,6 +439,8 @@ enquanto -- não influencia a geração do plano seguinte.
 credenciais (incluindo `DATABASE_URL` do Neon e a chave da service
 account do Google) e não vão pro Git (`.gitignore`). `explore/output/` contém dado
 de saúde real de amostra, também gitignored. O próprio dado de treino/sono
-vive só no Neon, fora do repositório — nada disso é commitado. O
+vive só no Neon, fora do repositório — nada disso é commitado. O artifact de
+monitoramento do GitHub Actions também não leva dado de saúde nesta branch:
+`MONITORAMENTO_AMOSTRAS` fica em 0 (ver [monitoring/README.md](monitoring/README.md)). O
 repositório no GitHub deve ficar **privado** como camada extra de proteção
 do código.

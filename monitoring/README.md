@@ -47,6 +47,11 @@ Na branch SR1 (sem relógio), acrescente `--ref SR1` aos `gh workflow run`.
 
 Retenção: 30 dias.
 
+O `resumo_execucao.md` abre com o **tempo total** da execução e os **tokens
+consumidos**, seguidos das etapas, das chamadas ao LLM, do **plano gerado**
+(dias de treino, minutos, modelo que gerou, tentativas) e do resumo de
+treino (com amostras ligadas: semana com km, pace médio e ACWR, e sono).
+
 ### O que abrir
 
 ```
@@ -93,10 +98,12 @@ Campos comuns a toda linha:
  "saida": {"dias_gravados": 7, "noites_sem_sono": 1}}
 ```
 
-`outcome`: `ok`, `erro` (com `erro` = nome da exceção, nunca a mensagem),
-`pulado_idempotente` (plano da semana já existia), `ensaio` (plano gerado e
-não entregue), `suspenso_alerta`,
-`suspendeu_treinos`, `alerta_sem_pendencia`. Um retry do workflow aparece
+`outcome`: `ok`, `erro` (com `erro` = nome da exceção, nunca a mensagem;
+`SIGTERM` quando o timeout do workflow mata a tentativa -- a linha sai mesmo
+assim, com a latência até o corte), `pulado_idempotente` (plano da semana já
+existia), `ensaio` (plano gerado e não entregue), `suspenso` (sinal de alerta
+ativo: sem plano). Com dado de saúde ligado (abaixo), `suspenso_alerta`,
+`suspendeu_treinos` e `alerta_sem_pendencia` dizem o motivo. Um retry do workflow aparece
 como uma linha `erro` seguida de outra da mesma etapa no mesmo `execucao_id`.
 
 ### `llm_chamada` -- uma linha por chamada ao Gemini
@@ -164,12 +171,18 @@ noite por dia), sessões o mais ligado ao risco de lesão.
 - Mensagem de exceção (pode conter URL do banco): só o nome da classe.
 - Nada do log vai pro console do Actions (o log do job é público).
 
-As amostras de domínio (sono, FC, pace) são agregados numéricos sem
-identificação. Na versão com dado real (branch `main`, repositório público),
-dá pra desligá-las sem mexer no código: variável do repositório
-`MONITORAMENTO_AMOSTRAS=0` (Settings → Secrets and variables → Actions →
-Variables, ou `gh variable set MONITORAMENTO_AMOSTRAS --body 0`). O log de
-operação continua completo. Na SR1 o dado é simulado.
+- **Dado de saúde, nesta branch (`main`, dado real).** As amostras de
+  domínio (sono, FC, pace por sessão e por semana) e os sinais derivados de
+  dor ou lesão (`restricao_dor`, `alerta_recente`, `regime` de retomada,
+  contagem de alertas na tíbia) não têm nome, mas o repositório é público e
+  está no nome do dono: no artifact, ficariam ligados a uma pessoa. Por isso
+  os workflows da `main` rodam com `MONITORAMENTO_AMOSTRAS=0` e o log leva só
+  operação (tempos, desfechos, contagens, ACWR, tokens, modelo, resumo do
+  plano). Na **branch SR1** o dado é simulado e o padrão é `1`: lá o artifact
+  traz as amostras e o resumo de treino (pace da semana, sono), que é onde as
+  distribuições (histogramas, KS, PSI) devem ser montadas.
+- Pra ligar mesmo assim (repositório privado, por exemplo), sem mexer no
+  código: `gh variable set MONITORAMENTO_AMOSTRAS --body 1`.
 
 ## 5. Gerar carga
 
@@ -185,15 +198,18 @@ for i in 1 2 3; do gh workflow run "Análise semanal" -f entregar=false; sleep 2
 ```
 
 Cada ensaio gera 2+ linhas `llm_chamada` (geração e revisão, mais as
-tentativas que o Python reprovar) e 7 amostras `dia_planejado`. Ensaios
-seguidos dão a distribuição de tokens, latência do LLM e km/minutos
-planejados -- e mostram a variabilidade do LLM com o mesmo contexto.
+tentativas que o Python reprovar e as trocas de modelo por sobrecarga), uma
+linha `etapa` com o resumo do plano (dias de treino, minutos, km, modelo) e,
+com amostras ligadas, 7 amostras `dia_planejado`. Ensaios seguidos dão a
+distribuição de tokens, latência do LLM e carga planejada -- e mostram a
+variabilidade do LLM com o mesmo contexto.
 
-**Na SR1 (sem relógio):** a Garmin simulada já entrega ~10 semanas de
-histórico no primeiro sync -- mas os loaders só pedem os últimos 7 dias, então
-o primeiro sync rende ~7 noites e as sessões da semana; as amostras crescem
-uma noite por dia de sync. Pra ter distribuição logo, rode o sync várias vezes
-e a análise em ensaio (acima) várias vezes.
+**Na SR1 (sem relógio):** os loaders da SR1 pedem a janela inteira da
+Garmin simulada, então o primeiro sync já rende ~10 semanas de amostras (sono,
+sessões, semanas) -- distribuição pronta pra histogramas, KS e PSI. Nesta
+branch (`main`, dado real) as amostras ficam desligadas (seção 4); com elas
+ligadas, os loaders da `main` reprocessam só os últimos 7 dias e as amostras
+crescem um dia por sync.
 
 **Local** (com `.env` preenchido), agrupando as etapas numa execução só:
 

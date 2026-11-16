@@ -72,23 +72,27 @@ def _remover_do_relogio(datas: list[date]) -> None:
 
 
 if __name__ == "__main__":
-    from src.monitoramento import etapa
+    from src.monitoramento import etapa, saude_ligada
 
     with etapa("alertas") as e:
         con = conectar()
         migrar_aba_atividades(con, conectar_planilha())  # antes de ler a aba por posição
         alertas = alertas_ativos(con)
         con.close()
-        e.saida["alertas_ativos"] = len(alertas)
+        # Alerta na tíbia é dado de saúde: sem saude_ligada() a etapa só
+        # registra tempo e desfecho (ver src/monitoramento.py).
+        if saude_ligada():
+            e.saida["alertas_ativos"] = len(alertas)
         if not alertas:
             print("[nenhum sinal de alerta ativo]")
             raise SystemExit(0)
 
         aba = obter_aba(conectar_planilha(), ABA_ATIVIDADES, CABECALHO_ATIVIDADES, cor=COR_ATIVIDADES)
         linhas = planejados_a_suspender(aba, hoje_brt())
-        e.saida["dias_a_suspender"] = len(set(linhas.values()))
+        if saude_ligada():
+            e.saida["dias_a_suspender"] = len(set(linhas.values()))
         if not linhas:
-            e.outcome = "alerta_sem_pendencia"
+            e.outcome = "alerta_sem_pendencia" if saude_ligada() else None
             print("[sinal de alerta ativo, sem dia planejado a suspender -- e-mail já enviado antes]")
             raise SystemExit(0)
 
@@ -106,4 +110,4 @@ if __name__ == "__main__":
         )
         print("[e-mail de alerta enviado]")
         marcar_suspensos(aba, list(linhas))
-        e.outcome = "suspendeu_treinos"
+        e.outcome = "suspendeu_treinos" if saude_ligada() else None

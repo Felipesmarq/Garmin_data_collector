@@ -68,7 +68,7 @@ jobs:
       FORCAR_REGERAR: ${{ inputs.forcar }}
       # vazio no cron (sem inputs) = entrega normal; só "false" é ensaio
       ENTREGAR_PLANO: ${{ inputs.entregar }}
-      MONITORAMENTO_AMOSTRAS: ${{ vars.MONITORAMENTO_AMOSTRAS || '1' }}
+      MONITORAMENTO_AMOSTRAS: ${{ vars.MONITORAMENTO_AMOSTRAS || '0' }}
     steps:
       # Job novo, VM nova -- reusable workflow não compartilha filesystem
       # entre jobs, então o ambiente (checkout, Python, token, credencial)
@@ -91,8 +91,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: logs
-          key: monitoramento-${{ github.run_id }}-${{ github.run_attempt }}-analisar
-          restore-keys: monitoramento-
+          key: monitoramento-v2-${{ github.run_id }}-${{ github.run_attempt }}-analisar
+          restore-keys: monitoramento-v2-
 
       - name: Restaurar token da Garmin
         run: |
@@ -138,7 +138,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: logs
-          key: monitoramento-${{ github.run_id }}-${{ github.run_attempt }}-analisar
+          key: monitoramento-v2-${{ github.run_id }}-${{ github.run_attempt }}-analisar
 
       - name: Publicar artifact de monitoramento
         if: always()

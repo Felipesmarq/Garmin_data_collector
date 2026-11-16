@@ -25,9 +25,12 @@ Três eventos (`evento`):
 Privacidade (o repositório é público, e o artifact também): nenhuma linha
 leva segredo, nome, e-mail, id de atividade, texto livre ou registro de dor;
 erro vira só o nome da exceção (a mensagem pode trazer URL do banco ou
-token). As amostras de domínio (sono, FC, pace) são agregados numéricos sem
-identificação, e podem ser desligadas com MONITORAMENTO_AMOSTRAS=0 -- o log
-de operação continua completo.
+token). Dado de saúde -- as amostras de domínio (sono, FC, pace) e os sinais
+derivados de dor/lesão (restrição por dor, alerta na tíbia, regime de
+retomada) -- só entra com MONITORAMENTO_AMOSTRAS=1 (`saude_ligada()`).
+Num repositório público com dado real, o artifact fica ligado ao dono do
+repositório: aí o padrão é 0 (workflows da main) e o log leva só operação.
+Com dado simulado (branch SR1), 1.
 
 Data e hora: ISO 8601 com milissegundos e fuso de Brasília
 (2026-11-16T03:17:05.123-03:00), na chave `ts`.
@@ -122,14 +125,16 @@ def registrar(evento: str, nivel: int = logging.INFO, **dados) -> None:
         pass
 
 
-def _amostras_ligadas() -> bool:
+def saude_ligada() -> bool:
+    """Se o log pode levar dado de saúde (amostras de domínio e sinais de
+    dor/lesão) -- ver docstring do módulo, privacidade."""
     return os.environ.get("MONITORAMENTO_AMOSTRAS", "1") != "0"
 
 
 def amostra(grupo: str, chave: str, **valores) -> None:
     """Uma observação de domínio (ver docstring do módulo). `chave` identifica
     a observação dentro do grupo (a data, o início da semana...)."""
-    if _amostras_ligadas():
+    if saude_ligada():
         registrar("amostra", grupo=grupo, chave=chave, valores=valores)
 
 

@@ -42,7 +42,7 @@ from src.email_util import enviar_email
 from src.extract.garmin import conectar as conectar_garmin
 from src.load.planilha_desempenho import ABA_ATIVIDADES, STATUS_PLANEJADO, ordenar_atividades
 from src.load.treino_garmin import enviar_plano as enviar_plano_garmin
-from src.monitoramento import Etapa, amostra, contar, etapa
+from src.monitoramento import Etapa, amostra, contar, etapa, saude_ligada
 from src.planilha import conectar as conectar_planilha
 from src.sintomas import alertas_ativos, texto_alerta
 from src.tempo import hoje_brt
@@ -76,15 +76,19 @@ def _monitorar_contexto(e: Etapa, ctx: ContextoSemana) -> None:
     """Entrada da análise no log de monitoramento: os sinais de guardrail já
     calculados em Python (o que restringe o vocabulário do LLM, ver
     docs/ENTENDIMENTO_DO_NEGOCIO.md 3.1) e o tamanho do que vai pro prompt.
-    Só números e flags -- nada de texto livre nem nível de dor."""
+    Só números e flags -- nada de texto livre nem nível de dor; os sinais que
+    revelam dor ou lesão só com saude_ligada() (ver src/monitoramento.py)."""
+    if saude_ligada():
+        e.entrada.update(
+            regime="retomada" if ctx.retomada else "normal",
+            retomada_trote_bloco_seg=ctx.retomada.trote_bloco if ctx.retomada else None,
+            restricao_dor=ctx.restricao_dor,
+            alerta_recente=ctx.houve_alerta,
+        )
     e.entrada.update(
-        regime="retomada" if ctx.retomada else "normal",
-        retomada_trote_bloco_seg=ctx.retomada.trote_bloco if ctx.retomada else None,
         sessoes_evolucao=ctx.sessoes_evolucao,
         acwr=ctx.acwr,
         teto_sessao_km=ctx.teto_km,
-        restricao_dor=ctx.restricao_dor,
-        alerta_recente=ctx.houve_alerta,
         instrucoes_guardrail=len(ctx.instrucoes),
         atividades_na_janela=len(ctx.linhas_ativ),
         semanas_no_resumo=len(ctx.linhas_resumo),
@@ -229,12 +233,14 @@ if __name__ == "__main__":
         # Sinal de alerta sem liberação: não sai plano (ver src/sintomas.py).
         alertas = alertas_ativos(con)
         if alertas and ensaio:
-            e.outcome = "suspenso_alerta"
+            # sem dado de saúde no log, o motivo da suspensão não aparece
+            e.outcome = "suspenso_alerta" if saude_ligada() else "suspenso"
             print("[ensaio: sinal de alerta ativo, nenhum plano gerado]")
             con.close()
             raise SystemExit(0)
         if alertas:
-            e.outcome = "suspenso_alerta"
+            # sem dado de saúde no log, o motivo da suspensão não aparece
+            e.outcome = "suspenso_alerta" if saude_ligada() else "suspenso"
             semana_txt = f"{dias[0].strftime('%d/%m')} a {dias[-1].strftime('%d/%m')}"
             escrever_semana_suspensa(spreadsheet, dias, "Plano suspenso por sinal de alerta na tíbia -- ver e-mail")
             enviar_email(

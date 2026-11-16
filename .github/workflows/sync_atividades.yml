@@ -37,10 +37,13 @@ jobs:
       EMAIL_REMETENTE: ${{ secrets.EMAIL_REMETENTE }}
       EMAIL_SENHA_APP: ${{ secrets.EMAIL_SENHA_APP }}
       EMAIL_DESTINATARIO: ${{ secrets.EMAIL_DESTINATARIO }}
-      # Amostras de domínio (sono, sessões, semana) no log de monitoramento:
-      # variável do repositório MONITORAMENTO_AMOSTRAS=0 desliga (o log de
-      # operação continua) -- ver src/monitoramento.py, privacidade.
-      MONITORAMENTO_AMOSTRAS: ${{ vars.MONITORAMENTO_AMOSTRAS || '1' }}
+      # Dado de saúde no log de monitoramento (amostras de sono, sessões e
+      # semana; sinais de dor e alerta): desligado por padrão aqui -- dado
+      # real num repositório público fica ligado ao dono, e o artifact não
+      # pode levar dado de saúde identificável. A SR1 (dado simulado) liga.
+      # Ver src/monitoramento.py, privacidade. Cache com prefixo v2: o log
+      # recomeçou sem as amostras reais do primeiro dia (2026-11-16).
+      MONITORAMENTO_AMOSTRAS: ${{ vars.MONITORAMENTO_AMOSTRAS || '0' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -59,8 +62,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: logs
-          key: monitoramento-${{ github.run_id }}-${{ github.run_attempt }}-sync
-          restore-keys: monitoramento-
+          key: monitoramento-v2-${{ github.run_id }}-${{ github.run_attempt }}-sync
+          restore-keys: monitoramento-v2-
 
       - name: Restaurar token da Garmin
         run: |
@@ -132,7 +135,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: logs
-          key: monitoramento-${{ github.run_id }}-${{ github.run_attempt }}-sync
+          key: monitoramento-v2-${{ github.run_id }}-${{ github.run_attempt }}-sync
 
       - name: Publicar artifact de monitoramento
         if: always()

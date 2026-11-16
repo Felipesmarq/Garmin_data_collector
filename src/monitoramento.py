@@ -36,6 +36,7 @@ Data e hora: ISO 8601 com milissegundos e fuso de Brasília
 import json
 import logging
 import os
+import signal
 import time
 import uuid
 from contextlib import contextmanager
@@ -154,6 +155,42 @@ class Etapa:
 _etapa_atual: Etapa | None = None
 
 
+class EncerradoPorSinal(SystemExit):
+    """SIGTERM durante uma etapa (o `timeout` do workflow matando a
+    tentativa): vira esta saída em vez da morte imediata, pra o `finally` de
+    `etapa()` gravar a linha antes de o processo acabar. É SystemExit (não
+    Exception), então nenhum `except Exception` best-effort a engole, e o
+    código de saída continua 128 + sinal, como se o processo tivesse sido
+    morto."""
+
+    def __init__(self, sinal: int):
+        super().__init__(128 + sinal)
+        self.nome_sinal = signal.Signals(sinal).name
+
+
+_encerrando = False
+
+
+def _ao_receber_sinal(sinal: int, _frame) -> None:
+    # O SIGTERM chega mais de uma vez: o `timeout` manda pro grupo de
+    # processos inteiro e o `uv run` repassa o seu pro Python. Só o primeiro
+    # vale; os seguintes não podem interromper a gravação da linha.
+    global _encerrando
+    if _encerrando:
+        return
+    _encerrando = True
+    raise EncerradoPorSinal(sinal)
+
+
+def _instalar_handler_sigterm():
+    """Devolve o handler anterior (pra restaurar) ou None se não deu pra
+    instalar -- signal.signal só funciona na thread principal."""
+    try:
+        return signal.signal(signal.SIGTERM, _ao_receber_sinal)
+    except ValueError:
+        return None
+
+
 def etapa_atual() -> Etapa | None:
     """A etapa em andamento -- pra código mais fundo (Gemini, Garmin)
     anotar sem precisar receber o objeto por parâmetro."""
@@ -175,15 +212,21 @@ def etapa(nome: str):
             e.saida["carregadas"] = n
 
     `SystemExit(0)` (saída antecipada de propósito, como plano já escrito)
-    não é erro: fica o outcome que a etapa fixou, ou "ok"."""
+    não é erro: fica o outcome que a etapa fixou, ou "ok". SIGTERM (timeout
+    do workflow) vira outcome "erro" com erro="SIGTERM" -- sem isso a
+    tentativa morta sumia do log e das latências."""
     global _etapa_atual
     e = Etapa(nome)
     anterior, _etapa_atual = _etapa_atual, e
+    handler_anterior = _instalar_handler_sigterm()
     inicio = time.perf_counter()
     inicio_ts = datetime.now(FUSO_BRT).isoformat(timespec="milliseconds")
     erro = None
     try:
         yield e
+    except EncerradoPorSinal as saida:
+        e.outcome, erro = "erro", saida.nome_sinal
+        raise
     except SystemExit as saida:
         if saida.code not in (None, 0):
             e.outcome, erro = "erro", "SystemExit"
@@ -204,6 +247,10 @@ def etapa(nome: str):
             entrada=e.entrada,
             saida=e.saida,
         )
+        # Só depois de gravar: restaurar antes deixava um SIGTERM repetido
+        # matar o processo no meio da escrita.
+        if handler_anterior is not None and not _encerrando:
+            signal.signal(signal.SIGTERM, handler_anterior)
 
 
 # --------------------------------------------------------------------------

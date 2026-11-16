@@ -158,14 +158,20 @@ def importar_preenchidas(con: psycopg.Connection, aba: gspread.Worksheet) -> int
 
 
 if __name__ == "__main__":
-    con = conectar()
-    spreadsheet = conectar_planilha()
-    aba = obter_aba_dor(spreadsheet)
+    from src.monitoramento import etapa
 
-    n_exportadas = exportar_pendentes(con, aba)
-    print(f"{n_exportadas} atividade(s) nova(s) exportada(s) pra planilha.")
+    # Só contagens: o nível de dor é dado de saúde e não vai pro log.
+    with etapa("load_dor") as e:
+        con = conectar()
+        spreadsheet = conectar_planilha()
+        aba = obter_aba_dor(spreadsheet)
 
-    n_importadas = importar_preenchidas(con, aba)
-    print(f"{n_importadas} linha(s) de dor importada(s)/atualizada(s) em stg_dor.")
+        n_exportadas = exportar_pendentes(con, aba)
+        e.saida["linhas_exportadas"] = n_exportadas
+        print(f"{n_exportadas} atividade(s) nova(s) exportada(s) pra planilha.")
 
-    con.close()
+        n_importadas = importar_preenchidas(con, aba)
+        e.saida["linhas_importadas"] = n_importadas
+        print(f"{n_importadas} linha(s) de dor importada(s)/atualizada(s) em stg_dor.")
+
+        con.close()

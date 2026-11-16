@@ -79,10 +79,18 @@ if __name__ == "__main__":
     from src.extract.garmin import atividades_novas
     from src.extract.garmin import conectar as conectar_garmin
 
-    api = conectar_garmin()
-    novas = atividades_novas(api, dias=7)
+    from src.monitoramento import amostras_sessoes, etapa
 
-    con = conectar()
-    n = carregar(con, novas)
-    print(f"{n} atividade(s) carregada(s)/atualizada(s) em stg_atividades.")
-    con.close()
+    with etapa("load_atividades") as e:
+        api = conectar_garmin()
+        novas = atividades_novas(api, dias=7)
+        e.entrada["atividades_api"] = len(novas)
+        e.entrada["janela_dias"] = 7
+
+        con = conectar()
+        n = carregar(con, novas)
+        e.saida["atividades_gravadas"] = n
+        e.saida["splits_gravados"] = sum(len(a.get("splits") or []) for a in novas)
+        amostras_sessoes(con, [a["activity_id"] for a in novas])
+        print(f"{n} atividade(s) carregada(s)/atualizada(s) em stg_atividades.")
+        con.close()

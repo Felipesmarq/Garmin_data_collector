@@ -72,31 +72,38 @@ def _remover_do_relogio(datas: list[date]) -> None:
 
 
 if __name__ == "__main__":
-    con = conectar()
-    migrar_aba_atividades(con, conectar_planilha())  # antes de ler a aba por posição
-    alertas = alertas_ativos(con)
-    con.close()
-    if not alertas:
-        print("[nenhum sinal de alerta ativo]")
-        raise SystemExit(0)
+    from src.monitoramento import etapa
 
-    aba = obter_aba(conectar_planilha(), ABA_ATIVIDADES, CABECALHO_ATIVIDADES, cor=COR_ATIVIDADES)
-    linhas = planejados_a_suspender(aba, hoje_brt())
-    if not linhas:
-        print("[sinal de alerta ativo, sem dia planejado a suspender -- e-mail já enviado antes]")
-        raise SystemExit(0)
+    with etapa("alertas") as e:
+        con = conectar()
+        migrar_aba_atividades(con, conectar_planilha())  # antes de ler a aba por posição
+        alertas = alertas_ativos(con)
+        con.close()
+        e.saida["alertas_ativos"] = len(alertas)
+        if not alertas:
+            print("[nenhum sinal de alerta ativo]")
+            raise SystemExit(0)
 
-    # Ordem de propósito: relógio e e-mail antes de marcar SUSPENSO na
-    # planilha. Se algo falhar no meio, a nova tentativa do workflow ainda
-    # acha os dias PLANEJADO e repete -- no pior caso o e-mail chega duas
-    # vezes, mas nunca deixa de chegar.
-    datas = sorted(set(linhas.values()))
-    print(f"[sinal de alerta ativo: {len(datas)} dia(s) planejado(s) a suspender]")
-    _remover_do_relogio(datas)
-    dias_txt = ", ".join(d.strftime("%d/%m") for d in datas)
-    enviar_email(
-        "Treinos suspensos: sinal de alerta",
-        texto_alerta(alertas, f"Os treinos planejados de {dias_txt} foram suspensos e tirados do relógio."),
-    )
-    print("[e-mail de alerta enviado]")
-    marcar_suspensos(aba, list(linhas))
+        aba = obter_aba(conectar_planilha(), ABA_ATIVIDADES, CABECALHO_ATIVIDADES, cor=COR_ATIVIDADES)
+        linhas = planejados_a_suspender(aba, hoje_brt())
+        e.saida["dias_a_suspender"] = len(set(linhas.values()))
+        if not linhas:
+            e.outcome = "alerta_sem_pendencia"
+            print("[sinal de alerta ativo, sem dia planejado a suspender -- e-mail já enviado antes]")
+            raise SystemExit(0)
+
+        # Ordem de propósito: relógio e e-mail antes de marcar SUSPENSO na
+        # planilha. Se algo falhar no meio, a nova tentativa do workflow ainda
+        # acha os dias PLANEJADO e repete -- no pior caso o e-mail chega duas
+        # vezes, mas nunca deixa de chegar.
+        datas = sorted(set(linhas.values()))
+        print(f"[sinal de alerta ativo: {len(datas)} dia(s) planejado(s) a suspender]")
+        _remover_do_relogio(datas)
+        dias_txt = ", ".join(d.strftime("%d/%m") for d in datas)
+        enviar_email(
+            "Treinos suspensos: sinal de alerta",
+            texto_alerta(alertas, f"Os treinos planejados de {dias_txt} foram suspensos e tirados do relógio."),
+        )
+        print("[e-mail de alerta enviado]")
+        marcar_suspensos(aba, list(linhas))
+        e.outcome = "suspendeu_treinos"

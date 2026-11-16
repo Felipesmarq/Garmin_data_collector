@@ -39,18 +39,25 @@ if __name__ == "__main__":
     from src.extract.garmin import recuperacao_diaria
     from src.tempo import hoje_brt
 
-    api = conectar_garmin()
-    dias = []
-    for i in range(7):
-        # hoje_brt(), não date.today() -- o runner roda em UTC, 3h à frente
-        # do Brasil; perto da virada do dia, date.today() devolveria a data
-        # errada (bug real quando este job rodava às 21h BRT = 00h UTC).
-        dia = hoje_brt() - timedelta(days=i)
-        r = recuperacao_diaria(api, dia)
-        if r:
-            dias.append(r)
+    from src.monitoramento import amostras_sono, etapa
 
-    con = conectar()
-    n = carregar(con, dias)
-    print(f"{n} dia(s) de recuperação carregado(s)/atualizado(s) em stg_recuperacao_diaria.")
-    con.close()
+    with etapa("load_recuperacao") as e:
+        api = conectar_garmin()
+        dias = []
+        for i in range(7):
+            # hoje_brt(), não date.today() -- o runner roda em UTC, 3h à frente
+            # do Brasil; perto da virada do dia, date.today() devolveria a data
+            # errada (bug real quando este job rodava às 21h BRT = 00h UTC).
+            dia = hoje_brt() - timedelta(days=i)
+            r = recuperacao_diaria(api, dia)
+            if r:
+                dias.append(r)
+        e.entrada["dias_pedidos"] = 7
+        e.entrada["dias_com_dado"] = len(dias)
+
+        con = conectar()
+        n = carregar(con, dias)
+        e.saida["dias_gravados"] = n
+        e.saida["noites_sem_sono"] = amostras_sono(dias)
+        print(f"{n} dia(s) de recuperação carregado(s)/atualizado(s) em stg_recuperacao_diaria.")
+        con.close()

@@ -59,6 +59,7 @@ jobs:
       EMAIL_DESTINATARIO: ${{ secrets.EMAIL_DESTINATARIO }}
       SEMANA_PLANO: ${{ inputs.semana }}
       FORCAR_REGERAR: ${{ inputs.forcar }}
+      MONITORAMENTO_AMOSTRAS: ${{ vars.MONITORAMENTO_AMOSTRAS || '1' }}
     steps:
       # Job novo, VM nova -- reusable workflow não compartilha filesystem
       # entre jobs, então o ambiente (checkout, Python, token, credencial)
@@ -73,6 +74,16 @@ jobs:
 
       - name: Instalar dependências
         run: uv sync --frozen
+
+      # Monitoramento (monitoring/README.md): o log append-only vem da
+      # execução anterior pelo cache (a VM do Actions some no fim do job) --
+      # chave única por run/job; restore-keys pega a mais recente.
+      - name: Restaurar log de monitoramento
+        uses: actions/cache/restore@v4
+        with:
+          path: logs
+          key: monitoramento-${{ github.run_id }}-${{ github.run_attempt }}-analisar
+          restore-keys: monitoramento-
 
       - name: Restaurar token da Garmin
         run: |
@@ -105,3 +116,28 @@ jobs:
           done
           echo "::error::Análise semanal falhou em todas as tentativas"
           exit 1
+
+      # Mesmo com etapa falhando (if: always): o log de uma execução que
+      # falhou é justamente o que mais interessa. Resumo + .prom só com
+      # biblioteca padrão; o artifact leva o log acumulado inteiro.
+      - name: Resumo do monitoramento
+        if: always()
+        run: uv run --no-sync python monitoring/resumo.py --log logs --saida monitoring_out
+
+      - name: Salvar log de monitoramento
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: logs
+          key: monitoramento-${{ github.run_id }}-${{ github.run_attempt }}-analisar
+
+      - name: Publicar artifact de monitoramento
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: monitoramento-analise-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            logs/
+            monitoring_out/
+          retention-days: 30
+          if-no-files-found: warn

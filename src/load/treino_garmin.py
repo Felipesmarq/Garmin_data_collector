@@ -39,6 +39,7 @@ from garminconnect.workout import (
 )
 
 from src.formato import parse_faixa_fc, parse_faixa_pace
+from src.monitoramento import contar
 
 # Baixa intensidade -> alvo de FC (o que importa é não passar do esforço
 # seguro); o resto -> alvo de pace (acertar o ritmo de prova). O Garmin só
@@ -347,9 +348,11 @@ def enviar_plano(api: Garmin, dias_do_plano: list[tuple[date, object]], hoje: da
         try:
             resultado = enviar_treino(api, dia, data, retomada)
         except Exception as erro:  # noqa: BLE001 -- best-effort de propósito
+            contar("garmin_falhas")
             print(f"[Garmin: falha ao enviar o treino de {data}: {type(erro).__name__}: {erro}]")
             continue
         if resultado:
+            contar("garmin_treinos_enviados")
             print(f"[Garmin: treino de {data} {resultado} ({dia.tipo_treino or 'Descanso'})]")
         elif not dia.descanso:
             print(f"[Garmin: treino de {data} ({dia.tipo_treino}) sem distância nem duração, não enviado]")
@@ -358,9 +361,11 @@ def enviar_plano(api: Garmin, dias_do_plano: list[tuple[date, object]], hoje: da
         try:
             if dia.forca and not dia.descanso:
                 print(f"[Garmin: força de {data} {enviar_treino_forca(api, data, forca)}]")
+                contar("garmin_forca_enviados")
             elif existente := _achar_workout_agendado(api, data, forca=True):
                 # plano regerado tirou a força do dia
                 _remover(api, existente)
                 print(f"[Garmin: força de {data} removida]")
         except Exception as erro:  # noqa: BLE001 -- best-effort de propósito
+            contar("garmin_falhas")
             print(f"[Garmin: falha na força de {data}: {type(erro).__name__}: {erro}]")

@@ -33,7 +33,7 @@ from src.analyze.entrega import (
 from src.analyze.forca import aplicar_forca
 from src.analyze.gemini import gerar_analise, revisar_coerencia
 from src.analyze.guardrails import violacoes_regras
-from src.analyze.modelos import PlanoSemanal, plano_semanal
+from src.analyze.modelos import DIAS_SEMANA_PT, PlanoSemanal, plano_semanal
 from src.analyze.retomada import SessaoRetomada, aplicar_retomada
 from src.analyze.semana import semana_alvo
 from src.config import EM_CI
@@ -42,6 +42,7 @@ from src.email_util import enviar_email
 from src.extract.garmin import conectar as conectar_garmin
 from src.load.planilha_desempenho import ABA_ATIVIDADES, STATUS_PLANEJADO, ordenar_atividades
 from src.load.treino_garmin import enviar_plano as enviar_plano_garmin
+from src.monitoramento import Etapa, amostra, contar, etapa
 from src.planilha import conectar as conectar_planilha
 from src.sintomas import alertas_ativos, texto_alerta
 from src.tempo import hoje_brt
@@ -71,6 +72,52 @@ def _imprimir_contexto(ctx: ContextoSemana) -> None:
         print(f"[regime normal -- ACWR: {ctx.acwr}, teto por sessão: {ctx.teto_km} km, dor na tíbia recente: {ctx.dor_recente}, alerta recente: {ctx.houve_alerta}]\n")
 
 
+def _monitorar_contexto(e: Etapa, ctx: ContextoSemana) -> None:
+    """Entrada da análise no log de monitoramento: os sinais de guardrail já
+    calculados em Python (o que restringe o vocabulário do LLM, ver
+    docs/ENTENDIMENTO_DO_NEGOCIO.md 3.1) e o tamanho do que vai pro prompt.
+    Só números e flags -- nada de texto livre nem nível de dor."""
+    e.entrada.update(
+        regime="retomada" if ctx.retomada else "normal",
+        retomada_trote_bloco_seg=ctx.retomada.trote_bloco if ctx.retomada else None,
+        sessoes_evolucao=ctx.sessoes_evolucao,
+        acwr=ctx.acwr,
+        teto_sessao_km=ctx.teto_km,
+        restricao_dor=ctx.restricao_dor,
+        alerta_recente=ctx.houve_alerta,
+        instrucoes_guardrail=len(ctx.instrucoes),
+        atividades_na_janela=len(ctx.linhas_ativ),
+        semanas_no_resumo=len(ctx.linhas_resumo),
+        dias_passados=len(ctx.dias_passados),
+        exercicios_forca=len(ctx.forca.exercicios),
+        teste_calcanhar=ctx.forca.teste_calcanhar,
+        observacoes_chars=len(ctx.observacoes or ""),
+    )
+
+
+def _monitorar_plano(e: Etapa, plano: PlanoSemanal, ctx: ContextoSemana) -> None:
+    """Saída da análise: resumo do plano aprovado + uma amostra por dia."""
+    treinos = [d for d in plano.dias if not d.descanso]
+    e.saida.update(
+        dias_treino=len(treinos),
+        dias_descanso=len(plano.dias) - len(treinos),
+        dias_forca=sum(1 for d in treinos if d.forca),
+        km_planejados=round(sum(d.distancia_km or 0 for d in treinos), 2),
+        minutos_planejados=round(sum(d.duracao_min or 0 for d in treinos), 1),
+        logica_geral_chars=len(plano.logica_geral),
+    )
+    for data, d in zip(ctx.dias, plano.dias):
+        amostra(
+            "dia_planejado", data.isoformat(),
+            dia_semana=DIAS_SEMANA_PT[(data.weekday() + 1) % 7],  # modelos: Domingo..Sábado
+            descanso=d.descanso,
+            tipo_treino=d.tipo_treino or "Descanso",
+            distancia_km=d.distancia_km,
+            duracao_min=d.duracao_min,
+            forca=d.forca,
+        )
+
+
 def gerar_plano(ctx: ContextoSemana) -> tuple[PlanoSemanal, SessaoRetomada | None]:
     """Gera até MAX_TENTATIVAS_REVISAO candidatos: cada um passa primeiro
     pelas regras determinísticas (`violacoes_regras`) e só depois pela
@@ -79,9 +126,12 @@ def gerar_plano(ctx: ContextoSemana) -> tuple[PlanoSemanal, SessaoRetomada | Non
     prompt = ctx.prompt()
     for tentativa in range(1, MAX_TENTATIVAS_REVISAO + 1):
         rotulo = f"tentativa {tentativa}/{MAX_TENTATIVAS_REVISAO}"
+        contar("tentativas")
         candidato = plano_semanal(gerar_analise(prompt))
         problemas = violacoes_regras(candidato, ctx)
         if problemas:
+            contar("tentativas_fora_das_regras")
+            contar("violacoes_regras", len(problemas))
             _relatar(f"[{rotulo} fora das regras de carga: {len(problemas)} problema(s)]",
                      f"[{rotulo} fora das regras de carga:]", problemas)
             continue
@@ -92,6 +142,7 @@ def gerar_plano(ctx: ContextoSemana) -> tuple[PlanoSemanal, SessaoRetomada | Non
             if tentativa > 1:
                 print(f"[plano aprovado pela revisão de coerência na {rotulo}]")
             return candidato, sessao_retomada
+        contar("revisoes_reprovadas")
         _relatar(f"[revisão reprovou a {rotulo}: {len(revisao.problemas)} problema(s)]",
                  f"[revisão reprovou a {rotulo}: {revisao.motivo}]", revisao.problemas)
     raise RuntimeError(
@@ -138,47 +189,56 @@ def entregar(spreadsheet, plano: PlanoSemanal, ctx: ContextoSemana, sessao_retom
     try:
         enviar_plano_garmin(conectar_garmin(), list(zip(dias, plano.dias)), hoje_brt(), sessao_retomada, ctx.forca)
     except Exception as erro:  # noqa: BLE001 -- best-effort de propósito
+        contar("garmin_falha_conexao")
         print(f"[Garmin: não foi possível enviar os treinos ao relógio: {type(erro).__name__}: {erro}]")
 
 
 if __name__ == "__main__":
-    # Idempotência ponta a ponta: semana que já tem plano na planilha não é
-    # regerada. Reprocessar (retry manual, cron + disparo manual) chamaria o
-    # Gemini de novo e o LLM devolve OUTRO plano -- a planilha (idempotente)
-    # ficaria com o primeiro enquanto e-mail e relógio receberiam o segundo.
-    # Checa antes de tocar no banco ou no Gemini, pra não gastar nada.
-    # FORCAR_REGERAR=true (input `forcar` do disparo manual) gera um plano
-    # novo mesmo assim e substitui o antigo -- mas só depois de o novo ser
-    # aprovado pela revisão, então uma falha na geração não apaga nada.
-    spreadsheet = conectar_planilha()
-    dias = semana_alvo()
-    forcar = os.environ.get("FORCAR_REGERAR") == "true"
-    if plano_ja_escrito(spreadsheet, dias):
-        if not forcar:
-            print(
-                f"[plano da semana de {dias[0]} já existe em '{ABA_PLANO}': nada a gerar, "
-                "nenhum e-mail nem treino novo enviado]"
+    with etapa("analisar_com_ia") as e:
+        # Idempotência ponta a ponta: semana que já tem plano na planilha não é
+        # regerada. Reprocessar (retry manual, cron + disparo manual) chamaria o
+        # Gemini de novo e o LLM devolve OUTRO plano -- a planilha (idempotente)
+        # ficaria com o primeiro enquanto e-mail e relógio receberiam o segundo.
+        # Checa antes de tocar no banco ou no Gemini, pra não gastar nada.
+        # FORCAR_REGERAR=true (input `forcar` do disparo manual) gera um plano
+        # novo mesmo assim e substitui o antigo -- mas só depois de o novo ser
+        # aprovado pela revisão, então uma falha na geração não apaga nada.
+        spreadsheet = conectar_planilha()
+        dias = semana_alvo()
+        forcar = os.environ.get("FORCAR_REGERAR") == "true"
+        e.entrada.update(semana_inicio=dias[0].isoformat(), forcar=forcar)
+        if plano_ja_escrito(spreadsheet, dias):
+            if not forcar:
+                e.outcome = "pulado_idempotente"
+                print(
+                    f"[plano da semana de {dias[0]} já existe em '{ABA_PLANO}': nada a gerar, "
+                    "nenhum e-mail nem treino novo enviado]"
+                )
+                raise SystemExit(0)
+            e.entrada["regerando"] = True
+            print(f"[regeração forçada: o plano de {dias[0]} em '{ABA_PLANO}' será substituído se o novo for aprovado]")
+
+        con = conectar()
+
+        # Sinal de alerta sem liberação: não sai plano (ver src/sintomas.py).
+        alertas = alertas_ativos(con)
+        if alertas:
+            e.outcome = "suspenso_alerta"
+            semana_txt = f"{dias[0].strftime('%d/%m')} a {dias[-1].strftime('%d/%m')}"
+            escrever_semana_suspensa(spreadsheet, dias, "Plano suspenso por sinal de alerta na tíbia -- ver e-mail")
+            enviar_email(
+                "Plano da semana suspenso: sinal de alerta",
+                texto_alerta(alertas, f"O plano da semana de {semana_txt} não foi gerado."),
             )
+            print(f"[sinal de alerta ativo: plano da semana de {dias[0]} suspenso, e-mail enviado]")
+            con.close()
             raise SystemExit(0)
-        print(f"[regeração forçada: o plano de {dias[0]} em '{ABA_PLANO}' será substituído se o novo for aprovado]")
 
-    con = conectar()
-
-    # Sinal de alerta sem liberação: não sai plano (ver src/sintomas.py).
-    alertas = alertas_ativos(con)
-    if alertas:
-        semana_txt = f"{dias[0].strftime('%d/%m')} a {dias[-1].strftime('%d/%m')}"
-        escrever_semana_suspensa(spreadsheet, dias, "Plano suspenso por sinal de alerta na tíbia -- ver e-mail")
-        enviar_email(
-            "Plano da semana suspenso: sinal de alerta",
-            texto_alerta(alertas, f"O plano da semana de {semana_txt} não foi gerado."),
-        )
-        print(f"[sinal de alerta ativo: plano da semana de {dias[0]} suspenso, e-mail enviado]")
+        ctx = carregar_contexto(con, spreadsheet, dias)
+        _monitorar_contexto(e, ctx)
+        e.entrada["prompt_chars"] = len(ctx.prompt())
+        _imprimir_contexto(ctx)
+        plano, sessao_retomada = gerar_plano(ctx)
+        _monitorar_plano(e, plano, ctx)
+        entregar(spreadsheet, plano, ctx, sessao_retomada, forcar)
         con.close()
-        raise SystemExit(0)
-
-    ctx = carregar_contexto(con, spreadsheet, dias)
-    _imprimir_contexto(ctx)
-    plano, sessao_retomada = gerar_plano(ctx)
-    entregar(spreadsheet, plano, ctx, sessao_retomada, forcar)
-    con.close()

@@ -3,6 +3,7 @@ trocar de provedor é reescrever este módulo (ver CASE_DO_PROJETO_1.md
 seção 4)."""
 
 import os
+import time
 
 from google import genai
 from google.genai import errors, types
@@ -11,6 +12,7 @@ from pydantic import BaseModel
 from src.analyze.modelos import PlanoSemanal, RevisaoCoerencia
 from src.analyze.prompt import construir_prompt_revisao
 from src.config import carregar_env
+from src.monitoramento import contar, registrar
 
 MODELO_PADRAO = "gemini-3.8-flash"
 
@@ -38,7 +40,7 @@ def _modelos() -> list[str]:
     return [principal] + [m for m in MODELOS_RESERVA if m != principal]
 
 
-def _verificar_teto_tokens(cliente: genai.Client, modelo: str, texto: str) -> None:
+def _verificar_teto_tokens(cliente: genai.Client, modelo: str, texto: str) -> int:
     """Fase 10 -- rede de segurança, não limite operacional: a janela de 4
     semanas já mantém o prompt bem abaixo disso; um teto bem abaixo do
     limite real do Gemini (até 1M) pega algo que fugiu do esperado (bug de
@@ -50,6 +52,7 @@ def _verificar_teto_tokens(cliente: genai.Client, modelo: str, texto: str) -> No
             f"Prompt com {contagem.total_tokens} tokens, acima do teto de {TETO_TOKENS} -- "
             "algo fugiu do esperado (não é limite normal de operação). Abortando."
         )
+    return contagem.total_tokens
 
 
 def _gerar_json(conteudo: str, schema: type[BaseModel], o_que: str) -> str:
@@ -60,9 +63,13 @@ def _gerar_json(conteudo: str, schema: type[BaseModel], o_que: str) -> str:
     capacidade."""
     cliente = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     ultimo_erro: errors.APIError | None = None
-    for modelo in _modelos():
+    for ordem, modelo in enumerate(_modelos()):
+        # Monitoramento: uma linha `llm_chamada` por modelo tentado, com o
+        # desfecho -- inclusive sobrecarga, que é o que dispara o reserva.
+        chamada = {"chamada": o_que, "modelo": modelo, "modelo_reserva": ordem > 0, "prompt_chars": len(conteudo)}
+        inicio = time.perf_counter()
         try:
-            _verificar_teto_tokens(cliente, modelo, conteudo)
+            chamada["prompt_tokens_contados"] = _verificar_teto_tokens(cliente, modelo, conteudo)
             resposta = cliente.models.generate_content(
                 model=modelo,
                 contents=conteudo,
@@ -76,20 +83,49 @@ def _gerar_json(conteudo: str, schema: type[BaseModel], o_que: str) -> str:
                 ),
             )
         except errors.APIError as erro:
+            _registrar_chamada(chamada, inicio, f"erro_{erro.code}")
             if erro.code not in CODIGOS_SOBRECARGA:
                 raise
             print(f"[Gemini: {modelo} indisponível ({erro.code}) para {o_que}, tentando o próximo modelo]")
             ultimo_erro = erro
             continue
+        except Exception as erro:
+            _registrar_chamada(chamada, inicio, f"erro_{type(erro).__name__}")
+            raise
+        _anotar_uso(chamada, resposta)
         if not resposta.candidates:
+            _registrar_chamada(chamada, inicio, "bloqueado")
             motivo = resposta.prompt_feedback.block_reason if resposta.prompt_feedback else "desconhecido"
             raise RuntimeError(f"Gemini bloqueou o prompt de {o_que} (motivo: {motivo}).")
         finalizacao = resposta.candidates[0].finish_reason
+        chamada["finish_reason"] = getattr(finalizacao, "name", finalizacao)
         if finalizacao not in (types.FinishReason.STOP, None) or not resposta.text:
+            _registrar_chamada(chamada, inicio, "incompleto")
             raise RuntimeError(f"Gemini não completou {o_que} (finish_reason={finalizacao}).")
+        chamada["resposta_chars"] = len(resposta.text)
+        _registrar_chamada(chamada, inicio, "ok")
         print(f"[{o_que}: {modelo}]")
         return resposta.text
     raise ultimo_erro
+
+
+def _anotar_uso(chamada: dict, resposta) -> None:
+    """Tokens que o próprio Gemini contabilizou (usage_metadata): entrada,
+    saída, raciocínio ("thinking") e total -- é o que entra na cota/custo."""
+    uso = resposta.usage_metadata
+    if uso is None:
+        return
+    chamada["tokens_entrada"] = uso.prompt_token_count
+    chamada["tokens_saida"] = uso.candidates_token_count
+    chamada["tokens_raciocinio"] = uso.thoughts_token_count
+    chamada["tokens_total"] = uso.total_token_count
+
+
+def _registrar_chamada(chamada: dict, inicio: float, outcome: str) -> None:
+    registrar("llm_chamada", outcome=outcome, latency_ms=round((time.perf_counter() - inicio) * 1000), **chamada)
+    contar("llm_chamadas")
+    if outcome == "ok":
+        contar("tokens_total", chamada.get("tokens_total") or 0)
 
 
 def gerar_analise(prompt: str) -> str:

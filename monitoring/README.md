@@ -25,6 +25,10 @@ gh workflow run "Sync atividades"
 # forcar=true gera um plano novo mesmo se a semana já tem um
 gh workflow run "Análise semanal" -f semana=proxima -f forcar=false
 
+# ENSAIO: Gemini de verdade, tudo no log, mas sem planilha, e-mail nem
+# relógio (outcome=ensaio) -- o jeito seguro de gerar carga da análise
+gh workflow run "Análise semanal" -f semana=proxima -f entregar=false
+
 # acompanhar e baixar
 gh run list --workflow "Sync atividades" --limit 5
 gh run watch                       # escolhe a execução em andamento
@@ -73,7 +77,7 @@ Campos comuns a toda linha:
 
 | campo | exemplo | |
 |---|---|---|
-| `ts` | `2026-11-16T03:17:05.123-03:00` | ISO 8601, milissegundos, fuso de Brasília (o runner roda em UTC) |
+| `ts` | `2026-11-16T03:17:05.123-03:00` | ISO 8601, milissegundos, fuso de Brasília (o runner roda em UTC); numa `etapa`, é o fim -- o início vem em `inicio` |
 | `nivel` | `INFO` / `ERROR` | nível do `logging` |
 | `v` | `1` | versão do formato |
 | `execucao_id` | `19384756-1` | run do Actions + tentativa (jobs do mesmo run compartilham) |
@@ -90,7 +94,8 @@ Campos comuns a toda linha:
 ```
 
 `outcome`: `ok`, `erro` (com `erro` = nome da exceção, nunca a mensagem),
-`pulado_idempotente` (plano da semana já existia), `suspenso_alerta`,
+`pulado_idempotente` (plano da semana já existia), `ensaio` (plano gerado e
+não entregue), `suspenso_alerta`,
 `suspendeu_treinos`, `alerta_sem_pendencia`. Um retry do workflow aparece
 como uma linha `erro` seguida de outra da mesma etapa no mesmo `execucao_id`.
 
@@ -175,16 +180,20 @@ execuções:
 # 5 syncs seguidos (cada um ~2-4 min; o concurrency do workflow enfileira)
 for i in 1 2 3 4 5; do gh workflow run "Sync atividades"; sleep 20; done
 
-# 2-3 planos (forcar=true pra não sair como pulado_idempotente e chamar o Gemini)
-gh workflow run "Análise semanal" -f semana=proxima -f forcar=true
+# vários planos em ensaio (chamam o Gemini, não entregam nada)
+for i in 1 2 3; do gh workflow run "Análise semanal" -f entregar=false; sleep 20; done
 ```
+
+Cada ensaio gera 2+ linhas `llm_chamada` (geração e revisão, mais as
+tentativas que o Python reprovar) e 7 amostras `dia_planejado`. Ensaios
+seguidos dão a distribuição de tokens, latência do LLM e km/minutos
+planejados -- e mostram a variabilidade do LLM com o mesmo contexto.
 
 **Na SR1 (sem relógio):** a Garmin simulada já entrega ~10 semanas de
 histórico no primeiro sync -- mas os loaders só pedem os últimos 7 dias, então
 o primeiro sync rende ~7 noites e as sessões da semana; as amostras crescem
 uma noite por dia de sync. Pra ter distribuição logo, rode o sync várias vezes
-(acima) e a análise com `forcar=true` 2-3 vezes: o corredor simulado segue o
-plano, então as sessões novas também mudam.
+e a análise em ensaio (acima) várias vezes.
 
 **Local** (com `.env` preenchido), agrupando as etapas numa execução só:
 

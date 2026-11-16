@@ -139,10 +139,10 @@ def markdown(r: dict) -> str:
     h = r["historico"]
     out = [f"# Resumo do monitoramento -- execução `{r['execucao_id']}`", ""]
 
-    out += ["## Esta execução", "", "| etapa | início | latência (ms) | outcome | entrada | saída |", "|---|---|---:|---|---|---|"]
+    out += ["## Esta execução", "", "| etapa | início | fim | latência (ms) | outcome | entrada | saída |", "|---|---|---|---:|---|---|---|"]
     for l in r["execucao"]["etapas"]:
         out.append(
-            f"| {l['etapa']} | {l['ts']} | {l['latency_ms']} | {l['outcome']}{' (' + l['erro'] + ')' if l.get('erro') else ''} "
+            f"| {l['etapa']} | {l.get('inicio', '-')} | {l['ts']} | {l['latency_ms']} | {l['outcome']}{' (' + l['erro'] + ')' if l.get('erro') else ''} "
             f"| `{json.dumps(l['entrada'], ensure_ascii=False)}` | `{json.dumps(l['saida'], ensure_ascii=False)}` |"
         )
     if r["execucao"]["llm_chamadas"]:

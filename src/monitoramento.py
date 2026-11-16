@@ -180,6 +180,7 @@ def etapa(nome: str):
     e = Etapa(nome)
     anterior, _etapa_atual = _etapa_atual, e
     inicio = time.perf_counter()
+    inicio_ts = datetime.now(FUSO_BRT).isoformat(timespec="milliseconds")
     erro = None
     try:
         yield e
@@ -196,6 +197,7 @@ def etapa(nome: str):
             "etapa",
             logging.ERROR if erro else logging.INFO,
             etapa=nome,
+            inicio=inicio_ts,  # `ts` é o fim: a linha é escrita quando a etapa termina
             outcome=e.outcome or "ok",
             latency_ms=round((time.perf_counter() - inicio) * 1000),
             erro=erro,

@@ -30,6 +30,10 @@ on:
         description: "Gerar um plano novo mesmo se a semana já tem plano (substitui planilha e treinos do relógio)"
         type: boolean
         default: false
+      entregar:
+        description: "Entregar o plano (desmarcado = ensaio: gera e registra no log de monitoramento, sem planilha, e-mail nem relógio)"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -59,6 +63,8 @@ jobs:
       EMAIL_DESTINATARIO: ${{ secrets.EMAIL_DESTINATARIO }}
       SEMANA_PLANO: ${{ inputs.semana }}
       FORCAR_REGERAR: ${{ inputs.forcar }}
+      # vazio no cron (sem inputs) = entrega normal; só "false" é ensaio
+      ENTREGAR_PLANO: ${{ inputs.entregar }}
       MONITORAMENTO_AMOSTRAS: ${{ vars.MONITORAMENTO_AMOSTRAS || '1' }}
     steps:
       # Job novo, VM nova -- reusable workflow não compartilha filesystem

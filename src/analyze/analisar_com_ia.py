@@ -206,8 +206,14 @@ if __name__ == "__main__":
         spreadsheet = conectar_planilha()
         dias = semana_alvo()
         forcar = os.environ.get("FORCAR_REGERAR") == "true"
-        e.entrada.update(semana_inicio=dias[0].isoformat(), forcar=forcar)
-        if plano_ja_escrito(spreadsheet, dias):
+        # Ensaio (ENTREGAR_PLANO=false, input `entregar` do disparo manual):
+        # contexto real, Gemini de verdade, regras e revisão -- tudo registrado
+        # no log de monitoramento --, mas sem planilha, e-mail nem relógio.
+        # Serve pra gerar carga de monitoramento sem mexer no treino da
+        # semana; por isso também não para em "plano já escrito".
+        ensaio = os.environ.get("ENTREGAR_PLANO") == "false"
+        e.entrada.update(semana_inicio=dias[0].isoformat(), forcar=forcar, ensaio=ensaio)
+        if not ensaio and plano_ja_escrito(spreadsheet, dias):
             if not forcar:
                 e.outcome = "pulado_idempotente"
                 print(
@@ -222,6 +228,11 @@ if __name__ == "__main__":
 
         # Sinal de alerta sem liberação: não sai plano (ver src/sintomas.py).
         alertas = alertas_ativos(con)
+        if alertas and ensaio:
+            e.outcome = "suspenso_alerta"
+            print("[ensaio: sinal de alerta ativo, nenhum plano gerado]")
+            con.close()
+            raise SystemExit(0)
         if alertas:
             e.outcome = "suspenso_alerta"
             semana_txt = f"{dias[0].strftime('%d/%m')} a {dias[-1].strftime('%d/%m')}"
@@ -240,5 +251,10 @@ if __name__ == "__main__":
         _imprimir_contexto(ctx)
         plano, sessao_retomada = gerar_plano(ctx)
         _monitorar_plano(e, plano, ctx)
-        entregar(spreadsheet, plano, ctx, sessao_retomada, forcar)
+        if ensaio:
+            e.outcome = "ensaio"
+            imprimir_plano(plano, dias, ctx.forca)
+            print("[ensaio: plano não entregue -- planilha, e-mail e relógio intactos]")
+        else:
+            entregar(spreadsheet, plano, ctx, sessao_retomada, forcar)
         con.close()

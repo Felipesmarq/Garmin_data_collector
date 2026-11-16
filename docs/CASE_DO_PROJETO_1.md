@@ -806,9 +806,11 @@ por tentativa) e modelos de reserva do Gemini (seção 6.1, 2026-10). Só
 depois disso o e-mail padrão do GitHub de workflow que falhou dispara. Secrets: `GARMIN_EMAIL`, `GARMIN_PASSWORD` (fallback), `GARMIN_TOKEN`
 (token de sessão já autenticado -- ver seção 11 pra por que isso funciona
 sem senha/MFA a cada run), `DATABASE_URL`, `GOOGLE_SHEET_ID`,
-`GOOGLE_SHEETS_CREDENTIALS_JSON`, `GEMINI_API_KEY`, `GEMINI_MODEL`,
+`GOOGLE_SHEETS_CREDENTIALS_JSON`, `GEMINI_API_KEY`,
 `EMAIL_REMETENTE`, `EMAIL_SENHA_APP` (senha de app do Gmail),
-`EMAIL_DESTINATARIO` (opcional).
+`EMAIL_DESTINATARIO` (opcional). `GEMINI_MODEL` (opcional) é variável do
+repositório, não Secret: o nome do modelo vai pro log de monitoramento
+publicado como artifact (2026-11).
 **Critérios de aceite:**
 - [x] Workflows escritos e validados sintaticamente (`yaml.safe_load` sem erro, jobs corretos).
 - [x] `conectar()` (`extract/garmin.py`) falha rápido com mensagem clara em CI sem senha disponível, em vez de travar esperando `input()`/`getpass()` que nunca chega (runner não tem terminal).

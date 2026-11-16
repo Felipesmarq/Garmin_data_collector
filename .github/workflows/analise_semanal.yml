@@ -57,7 +57,10 @@ jobs:
       GOOGLE_SHEETS_CREDENTIALS_PATH: .google_sheets_credentials.json
       GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
+      # Variável do repositório, não Secret: o nome do modelo vai pro log de
+      # monitoramento (artifact), que não pode levar segredo. O Secret antigo
+      # fica só como fallback até ser apagado.
+      GEMINI_MODEL: ${{ vars.GEMINI_MODEL || secrets.GEMINI_MODEL }}
       EMAIL_REMETENTE: ${{ secrets.EMAIL_REMETENTE }}
       EMAIL_SENHA_APP: ${{ secrets.EMAIL_SENHA_APP }}
       EMAIL_DESTINATARIO: ${{ secrets.EMAIL_DESTINATARIO }}

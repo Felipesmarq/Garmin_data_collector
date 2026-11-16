@@ -227,13 +227,16 @@ def texto_plano(plano: PlanoSemanal, dias: list[date], forca: PrescricaoForca | 
     return "\n".join(linhas)
 
 
-def imprimir_plano(plano: PlanoSemanal, dias: list[date], forca: PrescricaoForca | None = None) -> None:
+def imprimir_plano(plano: PlanoSemanal, dias: list[date], forca: PrescricaoForca | None = None, entregue: bool = True) -> None:
+    """`entregue=False` no ensaio (analisar_com_ia): no Actions o conteúdo
+    não aparece em lugar nenhum, só os números no log de monitoramento."""
     if EM_CI:
         treinos = sum(1 for d in plano.dias if not d.descanso)
-        print(
-            f"[plano da semana de {dias[0]} gerado: {treinos} treino(s), {7 - treinos} descanso(s) "
-            "-- conteúdo completo no e-mail, na planilha e no relógio]"
+        destino = (
+            "conteúdo completo no e-mail, na planilha e no relógio" if entregue
+            else "ensaio: nada entregue, resumo numérico no log de monitoramento"
         )
+        print(f"[plano da semana de {dias[0]} gerado: {treinos} treino(s), {7 - treinos} descanso(s) -- {destino}]")
         return
     print(texto_plano(plano, dias, forca))
 

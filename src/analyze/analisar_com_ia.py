@@ -253,7 +253,7 @@ if __name__ == "__main__":
         _monitorar_plano(e, plano, ctx)
         if ensaio:
             e.outcome = "ensaio"
-            imprimir_plano(plano, dias, ctx.forca)
+            imprimir_plano(plano, dias, ctx.forca, entregue=False)
             print("[ensaio: plano não entregue -- planilha, e-mail e relógio intactos]")
         else:
             entregar(spreadsheet, plano, ctx, sessao_retomada, forcar)

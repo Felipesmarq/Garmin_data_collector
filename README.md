@@ -331,7 +331,6 @@ gh secret set GARMIN_PASSWORD --body "$(grep '^GARMIN_PASSWORD=' .env | cut -d= 
 gh secret set DATABASE_URL --body "$(grep '^DATABASE_URL=' .env | cut -d= -f2-)"
 gh secret set GOOGLE_SHEET_ID --body "$(grep '^GOOGLE_SHEET_ID=' .env | cut -d= -f2-)"
 gh secret set GEMINI_API_KEY --body "$(grep '^GEMINI_API_KEY=' .env | cut -d= -f2-)"
-gh secret set GEMINI_MODEL --body "$(grep '^GEMINI_MODEL=' .env | cut -d= -f2- | tr -d '\"')"
 gh secret set EMAIL_REMETENTE --body "$(grep '^EMAIL_REMETENTE=' .env | cut -d= -f2-)"
 gh secret set EMAIL_SENHA_APP --body "$(grep '^EMAIL_SENHA_APP=' .env | cut -d= -f2-)"
 gh secret set GARMIN_TOKEN < .garmin_tokens/garmin_tokens.json
@@ -340,6 +339,15 @@ gh secret set GOOGLE_SHEETS_CREDENTIALS_JSON < .google_sheets_credentials.json
 
 `EMAIL_DESTINATARIO` é opcional (`gh secret set EMAIL_DESTINATARIO --body "..."`)
 -- sem ele, o plano é enviado pro próprio `EMAIL_REMETENTE`.
+
+`GEMINI_MODEL` (opcional) vai como **variável** do repositório, não Secret --
+o nome do modelo aparece no log de monitoramento publicado como artifact
+(ver [monitoring/README.md](monitoring/README.md)), e artifact não leva
+segredo:
+
+```bash
+gh variable set GEMINI_MODEL --body "$(grep '^GEMINI_MODEL=' .env | cut -d= -f2- | tr -d '"')"
+```
 
 `GARMIN_TOKEN` é o conteúdo do token de sessão já autenticado localmente
 (dura ~1 ano, se renova sozinho sem senha/MFA -- ver seção 6.1 do case).
